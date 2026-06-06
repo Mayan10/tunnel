@@ -1,0 +1,23 @@
+name: build-artifact
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-zipapp:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run tests
+        run: python -m unittest
+      - name: Build zipapp
+        run: python scripts/build_zipapp.py
+      - name: Upload zipapp artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel
+          path: dist/tunnel.pyz

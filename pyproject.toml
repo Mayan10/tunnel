@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tunnel"
+version = "0.1.0"
+description = "A terminal app for ordering Apple Music playlists into smooth listening flows."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Tunnel contributors" }]
+license = { text = "MIT" }
+dependencies = []
+
+[project.scripts]
+tunnel = "tunnel.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["tunnel*"]
+
+[tool.setuptools.package-data]
+tunnel = ["*.json"]

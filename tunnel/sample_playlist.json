@@ -1,0 +1,105 @@
+{
+  "playlist": "sample late-night drive",
+  "tracks": [
+    {
+      "id": "sample-01",
+      "name": "Quiet Window",
+      "artist": "Northline",
+      "album": "Rooms",
+      "genre": "Ambient",
+      "duration": 214,
+      "bpm": 72,
+      "year": 2019
+    },
+    {
+      "id": "sample-02",
+      "name": "Side Streets",
+      "artist": "Mina Vale",
+      "album": "Blue Map",
+      "genre": "Indie Pop",
+      "duration": 198,
+      "bpm": 96,
+      "year": 2020
+    },
+    {
+      "id": "sample-03",
+      "name": "Glass Arcade",
+      "artist": "Signal City",
+      "album": "Neon Room",
+      "genre": "Electronic",
+      "duration": 241,
+      "bpm": 122,
+      "year": 2021
+    },
+    {
+      "id": "sample-04",
+      "name": "Roofline",
+      "artist": "Mina Vale",
+      "album": "Blue Map",
+      "genre": "Indie Pop",
+      "duration": 206,
+      "bpm": 101,
+      "year": 2020
+    },
+    {
+      "id": "sample-05",
+      "name": "Red Signal",
+      "artist": "Tactile Echo",
+      "album": "Afterimage",
+      "genre": "Techno",
+      "duration": 318,
+      "bpm": 132,
+      "year": 2023
+    },
+    {
+      "id": "sample-06",
+      "name": "After Rain",
+      "artist": "June Harbor",
+      "album": "Bloom",
+      "genre": "Folk",
+      "duration": 187,
+      "bpm": 83,
+      "year": 2018
+    },
+    {
+      "id": "sample-07",
+      "name": "Late Exit",
+      "artist": "Signal City",
+      "album": "Neon Room",
+      "genre": "House",
+      "duration": 256,
+      "bpm": 124,
+      "year": 2021
+    },
+    {
+      "id": "sample-08",
+      "name": "Low Beams",
+      "artist": "Northline",
+      "album": "Rooms",
+      "genre": "Downtempo",
+      "duration": 229,
+      "bpm": 88,
+      "year": 2019
+    },
+    {
+      "id": "sample-09",
+      "name": "Turnpike",
+      "artist": "Tactile Echo",
+      "album": "Afterimage",
+      "genre": "Dance",
+      "duration": 227,
+      "bpm": 126,
+      "year": 2023
+    },
+    {
+      "id": "sample-10",
+      "name": "Home Glow",
+      "artist": "June Harbor",
+      "album": "Bloom",
+      "genre": "Acoustic",
+      "duration": 202,
+      "bpm": 78,
+      "year": 2018
+    }
+  ]
+}
