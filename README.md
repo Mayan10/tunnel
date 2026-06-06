@@ -72,7 +72,6 @@ The app lets you:
 - analyze the tracks
 - preview the new order
 - create a new ordered playlist
-- replace the original playlist order after confirmation
 - save the ordered result as JSON
 
 Power-user commands:
@@ -80,22 +79,22 @@ Power-user commands:
 ```bash
 tunnel list
 tunnel order "My Playlist" --create-playlist "My Playlist - Flow"
-tunnel order "My Playlist" --replace-original
 tunnel export "My Playlist" --out exports/my-playlist.json
+tunnel restore "My Playlist - Before Tunnel abc123" --to "My Playlist Restored"
 ```
 
-Tunnel does not silently drop tracks. Before writing to Apple Music it stages the full ordered playlist and verifies the track count. Replacing the original playlist also creates a backup playlist first.
+Tunnel does not mutate original playlists. It creates new ordered playlists and verifies the track count after writing.
 
-## Model
+## Ordering Engine
 
-Tunnel currently uses two on-device models:
+Tunnel currently uses two local ordering engines:
 
 - `audio-hybrid-v1`: runs when Apple Music exposes local audio file paths. It decodes audio with macOS `afconvert`, estimates tempo, energy, brightness, and dynamics, caches the features, and combines them with metadata.
 - `metadata-flow-v0`: fallback when tracks are cloud-only or Music does not expose local file paths.
 
 For best results, download the playlist in Music before running Tunnel. If the output says `0 local files`, Tunnel cannot analyze audio for those songs.
 
-The next production ML milestone is `audio-embedding-v1`: a packaged Core ML model using Apple hardware acceleration for neural audio embeddings.
+The next production ML milestone is `audio-embedding-v1`: a packaged Core ML model using Apple hardware acceleration for neural audio embeddings. That model is not included in this release yet.
 
 ## Publish On GitHub
 

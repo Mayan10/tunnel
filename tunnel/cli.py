@@ -10,11 +10,11 @@ from pathlib import Path
 from . import __version__
 from .apple_music import (
     AppleMusicError,
+    copy_playlist,
     create_playlist_from_order,
     export_playlist,
     export_tracks,
     list_playlists,
-    rebuild_playlist_in_order,
 )
 from .audio import analyze_audio_for_tracks
 from .interactive import run_app
@@ -69,11 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     order_parser.add_argument("--out", type=Path, help="Write ordered JSON.")
     order_parser.add_argument("--m3u", type=Path, help="Write an M3U playlist for tracks with local files.")
     order_parser.add_argument("--create-playlist", help="Create a new Apple Music playlist with the ordered tracks.")
-    order_parser.add_argument(
-        "--replace-original",
-        action="store_true",
-        help="Rebuild the original Apple Music playlist in the computed order.",
-    )
+    order_parser.add_argument("--replace-original", action="store_true", help=argparse.SUPPRESS)
     order_parser.add_argument("--limit", type=int, help="Use only the first N tracks while testing.")
     order_parser.add_argument("--max-print", type=int, default=120, help="Maximum rows to print in the terminal.")
     order_parser.add_argument("--no-polish", action="store_true", help="Skip local swap polishing for very fast runs.")
@@ -82,6 +78,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     demo_parser = subparsers.add_parser("demo", help="Run the model against the bundled sample playlist.")
     demo_parser.set_defaults(handler=cmd_demo)
+
+    restore_parser = subparsers.add_parser("restore", help="Copy a backup playlist into a new restored playlist.")
+    restore_parser.add_argument("backup_playlist", help="Backup playlist name, usually containing 'Before Tunnel'.")
+    restore_parser.add_argument("--to", required=True, help="New playlist name to create from the backup.")
+    restore_parser.set_defaults(handler=cmd_restore)
 
     return parser
 
@@ -103,6 +104,13 @@ def cmd_list(_: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_restore(args: argparse.Namespace) -> int:
+    copy_playlist(args.backup_playlist, args.to)
+    print(f"Created restored playlist: {args.to}")
+    print(f"Source backup kept unchanged: {args.backup_playlist}")
+    return 0
+
+
 def cmd_export(args: argparse.Namespace) -> int:
     payload = export_playlist(args.playlist)
     args.out.parent.mkdir(parents=True, exist_ok=True)
@@ -114,6 +122,11 @@ def cmd_export(args: argparse.Namespace) -> int:
 def cmd_order(args: argparse.Namespace) -> int:
     if args.create_playlist and args.replace_original:
         raise ValueError("Choose either --create-playlist or --replace-original, not both.")
+    if args.replace_original:
+        raise ValueError(
+            "--replace-original has been disabled. Tunnel now only creates new ordered playlists "
+            "so original playlists cannot be damaged."
+        )
 
     playlist_name, tracks = _load_tracks_for_order(args)
     if args.limit is not None:
@@ -142,13 +155,6 @@ def cmd_order(args: argparse.Namespace) -> int:
             raise ValueError("--create-playlist needs the source Apple Music playlist name.")
         create_playlist_from_order(args.playlist or playlist_name, args.create_playlist, ordered.tracks)
         print(f"Created Apple Music playlist: {args.create_playlist}")
-
-    if args.replace_original:
-        if args.from_json and not args.playlist:
-            raise ValueError("--replace-original needs the source Apple Music playlist name.")
-        backup_name = rebuild_playlist_in_order(args.playlist or playlist_name, ordered.tracks)
-        print(f"Reordered Apple Music playlist: {args.playlist or playlist_name}")
-        print(f"Backup playlist kept: {backup_name}")
 
     return 0
 

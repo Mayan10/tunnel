@@ -7,7 +7,6 @@ from .apple_music import (
     create_playlist_from_order,
     export_tracks,
     list_playlists,
-    rebuild_playlist_in_order,
 )
 from .audio import analyze_audio_for_tracks
 from .io import write_order_json
@@ -62,10 +61,9 @@ def run_app() -> int:
         print()
         print("What should I do with this order?")
         print("  1. Create a new ordered playlist (recommended)")
-        print("  2. Replace the order of the original playlist")
-        print("  3. Save ordered JSON only")
-        print("  4. Cancel")
-        choice = input("Choose 1-4: ").strip()
+        print("  2. Save ordered JSON only")
+        print("  3. Cancel")
+        choice = input("Choose 1-3: ").strip()
 
         if choice == "1" or choice == "":
             target_name = _available_playlist_name(f"{playlist_name} - Flow")
@@ -77,19 +75,6 @@ def run_app() -> int:
             return 0
 
         if choice == "2":
-            print()
-            print(f"This will rebuild the order of \"{playlist_name}\" in Apple Music.")
-            print("It does not delete songs from your library, but it changes this playlist.")
-            confirmation = input("Type REORDER to continue: ").strip()
-            if confirmation != "REORDER":
-                print("Cancelled original-playlist reorder.")
-                continue
-            backup_name = rebuild_playlist_in_order(playlist_name, ordered.tracks)
-            print(f"Reordered Apple Music playlist: {playlist_name}")
-            print(f"Backup playlist kept: {backup_name}")
-            return 0
-
-        if choice == "3":
             default_path = Path("exports") / _safe_filename(f"{playlist_name}-flow.json")
             path_text = input(f"Output path [{default_path}]: ").strip()
             path = Path(path_text) if path_text else default_path
@@ -98,11 +83,11 @@ def run_app() -> int:
             print(f"Wrote ordered JSON: {path}")
             return 0
 
-        if choice == "4":
+        if choice == "3":
             print("Cancelled.")
             return 0
 
-        print("Choose 1, 2, 3, or 4.")
+        print("Choose 1, 2, or 3.")
 
 
 def _choose_playlist(playlists) -> str | None:

@@ -202,6 +202,32 @@ end run
 """
 
 
+COPY_PLAYLIST_APPLESCRIPT = r"""
+on run argv
+  set sourceName to item 1 of argv
+  set targetName to item 2 of argv
+
+  tell application "/System/Applications/Music.app"
+    if exists user playlist targetName then
+      error "A playlist named \"" & targetName & "\" already exists."
+    end if
+
+    set sourcePlaylist to first playlist whose name is sourceName
+    set sourceCount to count tracks of sourcePlaylist
+    set targetPlaylist to make new user playlist with properties {name:targetName}
+
+    repeat with sourceTrack in tracks of sourcePlaylist
+      duplicate sourceTrack to targetPlaylist
+    end repeat
+
+    if (count tracks of targetPlaylist) is not sourceCount then
+      error "Copy count mismatch. Source has " & sourceCount & " tracks, but the new playlist has " & (count tracks of targetPlaylist) & ". The source playlist was not changed."
+    end if
+  end tell
+end run
+"""
+
+
 def list_playlists() -> list[MusicPlaylist]:
     data = _run_jxa(LIST_PLAYLISTS_JXA)
     try:
@@ -269,6 +295,17 @@ def rebuild_playlist_in_order(source_playlist: str, ordered_tracks: list[Track])
     if process.returncode != 0:
         raise AppleMusicError(_friendly_music_error(process.stderr.strip() or process.stdout.strip()))
     return backup_playlist
+
+
+def copy_playlist(source_playlist: str, target_playlist: str) -> None:
+    process = subprocess.run(
+        ["osascript", "-e", COPY_PLAYLIST_APPLESCRIPT, source_playlist, target_playlist],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if process.returncode != 0:
+        raise AppleMusicError(_friendly_music_error(process.stderr.strip() or process.stdout.strip()))
 
 
 def _ordered_source_indexes(ordered_tracks: list[Track]) -> list[str]:
