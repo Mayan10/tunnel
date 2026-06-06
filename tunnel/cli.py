@@ -19,8 +19,9 @@ from .apple_music import (
 from .audio import analyze_audio_for_tracks
 from .interactive import run_app
 from .io import load_tracks_json, write_m3u, write_order_json
-from .model import LocalFlowModel
+from .model import LocalFlowModel, train_playlist_model
 from .ordering import OrderingConfig, order_tracks
+from .snapshot import write_playlist_snapshot
 from .types import Track
 
 
@@ -69,7 +70,6 @@ def build_parser() -> argparse.ArgumentParser:
     order_parser.add_argument("--out", type=Path, help="Write ordered JSON.")
     order_parser.add_argument("--m3u", type=Path, help="Write an M3U playlist for tracks with local files.")
     order_parser.add_argument("--create-playlist", help="Create a new Apple Music playlist with the ordered tracks.")
-    order_parser.add_argument("--replace-original", action="store_true", help=argparse.SUPPRESS)
     order_parser.add_argument("--limit", type=int, help="Use only the first N tracks while testing.")
     order_parser.add_argument("--max-print", type=int, default=120, help="Maximum rows to print in the terminal.")
     order_parser.add_argument("--no-polish", action="store_true", help="Skip local swap polishing for very fast runs.")
@@ -120,16 +120,10 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def cmd_order(args: argparse.Namespace) -> int:
-    if args.create_playlist and args.replace_original:
-        raise ValueError("Choose either --create-playlist or --replace-original, not both.")
-    if args.replace_original:
-        raise ValueError(
-            "--replace-original has been disabled. Tunnel now only creates new ordered playlists "
-            "so original playlists cannot be damaged."
-        )
-
     playlist_name, tracks = _load_tracks_for_order(args)
     if args.limit is not None:
+        if args.create_playlist:
+            raise ValueError("--limit cannot be used with --create-playlist.")
         if args.limit <= 0:
             raise ValueError("--limit must be greater than zero.")
         tracks = tracks[: args.limit]
@@ -164,7 +158,7 @@ def cmd_demo(_: argparse.Namespace) -> int:
     payload = json.loads(sample_text)
     playlist_name = str(payload.get("playlist") or "sample")
     tracks = [Track.from_dict(item, index + 1) for index, item in enumerate(payload.get("tracks", []))]
-    ordered = order_tracks(tracks, model=LocalFlowModel())
+    ordered = order_tracks(tracks, model=train_playlist_model(tracks))
     _print_order(playlist_name, ordered.tracks, ordered.score, max_print=80)
     _print_diagnostics(ordered)
     return 0
@@ -178,7 +172,10 @@ def _load_tracks_for_order(args: argparse.Namespace) -> tuple[str, list[Track]]:
         return playlist_name, tracks
     if not args.playlist:
         raise ValueError("Provide a playlist name, or use --from-json.")
-    return args.playlist, export_tracks(args.playlist)
+    tracks = export_tracks(args.playlist)
+    snapshot_path = write_playlist_snapshot(args.playlist, tracks)
+    print(f"Snapshot saved: {snapshot_path}")
+    return args.playlist, tracks
 
 
 def _print_order(playlist_name: str, tracks: list[Track], score: float, max_print: int) -> None:
@@ -223,15 +220,15 @@ def _print_diagnostics(ordered) -> None:
 def _build_model(tracks: list[Track], use_audio: bool) -> LocalFlowModel:
     local_files = sum(1 for track in tracks if track.location)
     if not use_audio or local_files == 0:
-        return LocalFlowModel()
+        return train_playlist_model(tracks)
 
     print(f"Analyzing local audio for {local_files} tracks...")
     audio_features = analyze_audio_for_tracks(tracks)
     if not audio_features:
         print("No audio files could be analyzed; using metadata fallback.")
-        return LocalFlowModel()
+        return train_playlist_model(tracks)
     print(f"Audio features ready for {len(audio_features)} tracks.")
-    return LocalFlowModel(audio_features=audio_features)
+    return train_playlist_model(tracks, audio_features=audio_features)
 
 
 def _clip(value: str, width: int) -> str:

@@ -10,8 +10,9 @@ from .apple_music import (
 )
 from .audio import analyze_audio_for_tracks
 from .io import write_order_json
-from .model import LocalFlowModel
+from .model import LocalFlowModel, train_playlist_model
 from .ordering import order_tracks
+from .snapshot import write_playlist_snapshot
 from .types import Track
 
 
@@ -36,6 +37,8 @@ def run_app() -> int:
     if not tracks:
         print("That playlist has no tracks.")
         return 1
+    snapshot_path = write_playlist_snapshot(playlist_name, tracks)
+    print(f"Snapshot saved: {snapshot_path}")
 
     model = _build_model(tracks)
     print(f"Ordering {len(tracks)} tracks with {model.name}...")
@@ -135,7 +138,7 @@ def _print_preview(tracks: list[Track], limit: int = 20) -> None:
 def _build_model(tracks: list[Track]) -> LocalFlowModel:
     local_files = sum(1 for track in tracks if track.location)
     if local_files == 0:
-        return LocalFlowModel()
+        return train_playlist_model(tracks)
 
     print(f"Analyzing local audio for {local_files} tracks...")
 
@@ -145,9 +148,9 @@ def _build_model(tracks: list[Track]) -> LocalFlowModel:
     audio_features = analyze_audio_for_tracks(tracks, progress=progress)
     if not audio_features:
         print("No audio files could be analyzed; using metadata fallback.")
-        return LocalFlowModel()
+        return train_playlist_model(tracks)
     print(f"Audio features ready for {len(audio_features)} tracks.")
-    return LocalFlowModel(audio_features=audio_features)
+    return train_playlist_model(tracks, audio_features=audio_features)
 
 
 def _available_playlist_name(base_name: str) -> str:

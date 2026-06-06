@@ -114,89 +114,46 @@ CREATE_PLAYLIST_APPLESCRIPT = r"""
 on run argv
   set sourceName to item 1 of argv
   set targetName to item 2 of argv
-  set orderedIndexes to items 3 thru -1 of argv
+  set tempName to item 3 of argv
+  set orderedIndexes to items 4 thru -1 of argv
 
   tell application "/System/Applications/Music.app"
     if exists user playlist targetName then
       error "A playlist named \"" & targetName & "\" already exists."
     end if
-
-    set sourcePlaylist to first playlist whose name is sourceName
-    set targetPlaylist to make new user playlist with properties {name:targetName}
-    set sourceCount to count tracks of sourcePlaylist
-
-    repeat with sourceIndex in orderedIndexes
-      set sourcePosition to sourceIndex as integer
-      if sourcePosition < 1 or sourcePosition > sourceCount then
-        error "Ordered track index " & sourcePosition & " is outside the source playlist."
-      end if
-      duplicate track sourcePosition of sourcePlaylist to targetPlaylist
-    end repeat
-
-    if (count tracks of targetPlaylist) is not (count orderedIndexes) then
-      error "Could not copy every ordered track. The new playlist may be incomplete."
-    end if
-  end tell
-end run
-"""
-
-
-REBUILD_PLAYLIST_APPLESCRIPT = r"""
-on run argv
-  set sourceName to item 1 of argv
-  set tempName to item 2 of argv
-  set backupName to item 3 of argv
-  set orderedIndexes to items 4 thru -1 of argv
-
-  tell application "/System/Applications/Music.app"
-    set sourcePlaylist to first user playlist whose name is sourceName
-    set sourceCount to count tracks of sourcePlaylist
-
-    if sourceCount is not (count orderedIndexes) then
-      error "Playlist changed during analysis. Expected " & (count orderedIndexes) & " tracks but found " & sourceCount & ". The original playlist was not changed."
-    end if
-
     if exists user playlist tempName then
       delete user playlist tempName
     end if
-    if exists user playlist backupName then
-      error "A backup playlist named \"" & backupName & "\" already exists."
+
+    set sourcePlaylist to first playlist whose name is sourceName
+    set sourceCount to count tracks of sourcePlaylist
+
+    if sourceCount is not (count orderedIndexes) then
+      error "Refusing to create an incomplete playlist. Source has " & sourceCount & " tracks, but the computed order has " & (count orderedIndexes) & "."
     end if
 
-    set backupPlaylist to make new user playlist with properties {name:backupName}
     set tempPlaylist to make new user playlist with properties {name:tempName}
 
-    repeat with originalTrack in tracks of sourcePlaylist
-      duplicate originalTrack to backupPlaylist
-    end repeat
+    try
+      repeat with sourceIndex in orderedIndexes
+        set sourcePosition to sourceIndex as integer
+        if sourcePosition < 1 or sourcePosition > sourceCount then
+          error "Ordered track index " & sourcePosition & " is outside the source playlist."
+        end if
+        duplicate track sourcePosition of sourcePlaylist to tempPlaylist
+      end repeat
 
-    if (count tracks of backupPlaylist) is not sourceCount then
-      error "Could not create a complete backup playlist. The original playlist was not changed."
-    end if
-
-    repeat with sourceIndex in orderedIndexes
-      set sourcePosition to sourceIndex as integer
-      if sourcePosition < 1 or sourcePosition > sourceCount then
-        error "Ordered track index " & sourcePosition & " is outside the source playlist. The original playlist was not changed."
+      if (count tracks of tempPlaylist) is not sourceCount then
+        error "Copy count mismatch. Source has " & sourceCount & " tracks, but the staged playlist has " & (count tracks of tempPlaylist) & "."
       end if
-      duplicate track sourcePosition of sourcePlaylist to tempPlaylist
-    end repeat
 
-    if (count tracks of tempPlaylist) is not sourceCount then
-      error "Could not stage every ordered track. The original playlist was not changed."
-    end if
-
-    delete every track of sourcePlaylist
-
-    repeat with orderedTrack in tracks of tempPlaylist
-      duplicate orderedTrack to sourcePlaylist
-    end repeat
-
-    if (count tracks of sourcePlaylist) is not sourceCount then
-      error "Rebuild count mismatch. Backup playlist kept: " & backupName
-    end if
-
-    delete tempPlaylist
+      set name of tempPlaylist to targetName
+    on error errorMessage
+      try
+        delete tempPlaylist
+      end try
+      error errorMessage
+    end try
   end tell
 end run
 """
@@ -206,23 +163,36 @@ COPY_PLAYLIST_APPLESCRIPT = r"""
 on run argv
   set sourceName to item 1 of argv
   set targetName to item 2 of argv
+  set tempName to item 3 of argv
 
   tell application "/System/Applications/Music.app"
     if exists user playlist targetName then
       error "A playlist named \"" & targetName & "\" already exists."
     end if
+    if exists user playlist tempName then
+      delete user playlist tempName
+    end if
 
     set sourcePlaylist to first playlist whose name is sourceName
     set sourceCount to count tracks of sourcePlaylist
-    set targetPlaylist to make new user playlist with properties {name:targetName}
+    set tempPlaylist to make new user playlist with properties {name:tempName}
 
-    repeat with sourceTrack in tracks of sourcePlaylist
-      duplicate sourceTrack to targetPlaylist
-    end repeat
+    try
+      repeat with sourceTrack in tracks of sourcePlaylist
+        duplicate sourceTrack to tempPlaylist
+      end repeat
 
-    if (count tracks of targetPlaylist) is not sourceCount then
-      error "Copy count mismatch. Source has " & sourceCount & " tracks, but the new playlist has " & (count tracks of targetPlaylist) & ". The source playlist was not changed."
-    end if
+      if (count tracks of tempPlaylist) is not sourceCount then
+        error "Copy count mismatch. Source has " & sourceCount & " tracks, but the staged playlist has " & (count tracks of tempPlaylist) & "."
+      end if
+
+      set name of tempPlaylist to targetName
+    on error errorMessage
+      try
+        delete tempPlaylist
+      end try
+      error errorMessage
+    end try
   end tell
 end run
 """
@@ -262,44 +232,22 @@ def export_tracks(playlist_name: str) -> list[Track]:
 
 def create_playlist_from_order(source_playlist: str, target_playlist: str, ordered_tracks: list[Track]) -> None:
     ordered_indexes = _ordered_source_indexes(ordered_tracks)
+    temp_playlist = f"{target_playlist} - Tunnel Staging {uuid4().hex[:8]}"
 
     process = subprocess.run(
-        ["osascript", "-e", CREATE_PLAYLIST_APPLESCRIPT, source_playlist, target_playlist, *ordered_indexes],
+        ["osascript", "-e", CREATE_PLAYLIST_APPLESCRIPT, source_playlist, target_playlist, temp_playlist, *ordered_indexes],
         text=True,
         capture_output=True,
         check=False,
     )
     if process.returncode != 0:
         raise AppleMusicError(_friendly_music_error(process.stderr.strip() or process.stdout.strip()))
-
-
-def rebuild_playlist_in_order(source_playlist: str, ordered_tracks: list[Track]) -> str:
-    ordered_indexes = _ordered_source_indexes(ordered_tracks)
-
-    temp_playlist = f"{source_playlist} - Tunnel Temp {uuid4().hex[:8]}"
-    backup_playlist = f"{source_playlist} - Before Tunnel {uuid4().hex[:8]}"
-    process = subprocess.run(
-        [
-            "osascript",
-            "-e",
-            REBUILD_PLAYLIST_APPLESCRIPT,
-            source_playlist,
-            temp_playlist,
-            backup_playlist,
-            *ordered_indexes,
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if process.returncode != 0:
-        raise AppleMusicError(_friendly_music_error(process.stderr.strip() or process.stdout.strip()))
-    return backup_playlist
 
 
 def copy_playlist(source_playlist: str, target_playlist: str) -> None:
+    temp_playlist = f"{target_playlist} - Tunnel Staging {uuid4().hex[:8]}"
     process = subprocess.run(
-        ["osascript", "-e", COPY_PLAYLIST_APPLESCRIPT, source_playlist, target_playlist],
+        ["osascript", "-e", COPY_PLAYLIST_APPLESCRIPT, source_playlist, target_playlist, temp_playlist],
         text=True,
         capture_output=True,
         check=False,
@@ -319,8 +267,13 @@ def _ordered_source_indexes(ordered_tracks: list[Track]) -> list[str]:
         indexes.append(str(track.source_index))
     if not indexes:
         raise AppleMusicError("No tracks are available to write to Music.")
-    if len(indexes) != len(ordered_tracks):
-        raise AppleMusicError("Not every track has a source playlist index.")
+    expected = list(range(1, len(ordered_tracks) + 1))
+    actual = sorted(int(index) for index in indexes)
+    if actual != expected:
+        raise AppleMusicError(
+            "Refusing to write a partial playlist. The computed order does not contain every "
+            "source playlist position exactly once."
+        )
     return indexes
 
 

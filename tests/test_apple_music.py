@@ -18,6 +18,25 @@ class AppleMusicWriteTest(unittest.TestCase):
         with self.assertRaises(AppleMusicError):
             _ordered_source_indexes([Track(id="x", name="Missing")])
 
+    def test_duplicate_source_index_is_rejected(self):
+        tracks = [
+            Track(id="a", name="A", source_index=1),
+            Track(id="b", name="B", source_index=1),
+            Track(id="c", name="C", source_index=3),
+        ]
+
+        with self.assertRaises(AppleMusicError):
+            _ordered_source_indexes(tracks)
+
+    def test_partial_source_indexes_are_rejected(self):
+        tracks = [
+            Track(id="a", name="A", source_index=1),
+            Track(id="c", name="C", source_index=3),
+        ]
+
+        with self.assertRaises(AppleMusicError):
+            _ordered_source_indexes(tracks)
+
 
 if __name__ == "__main__":
     unittest.main()

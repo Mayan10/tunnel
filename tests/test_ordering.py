@@ -1,6 +1,6 @@
 import unittest
 
-from tunnel.model import LocalFlowModel
+from tunnel.model import DEFAULT_TRANSITION_WEIGHTS, LocalFlowModel, train_playlist_model
 from tunnel.ordering import OrderingConfig, order_tracks
 from tunnel.types import Track
 
@@ -41,6 +41,20 @@ class OrderingTest(unittest.TestCase):
         different_cost = model.transition(left, different, left_features, model.features_for(different)).total
 
         self.assertLess(similar_cost, different_cost)
+
+    def test_playlist_model_trains_weights_locally(self):
+        tracks = [
+            Track(id="a", name="A", artist="One", genre="Ambient", bpm=72, year=2018),
+            Track(id="b", name="B", artist="One", genre="Downtempo", bpm=82, year=2018),
+            Track(id="c", name="C", artist="Two", genre="Pop", bpm=104, year=2020),
+            Track(id="d", name="D", artist="Three", genre="Dance", bpm=126, year=2022),
+            Track(id="e", name="E", artist="Three", genre="House", bpm=128, year=2022),
+        ]
+
+        model = train_playlist_model(tracks)
+
+        self.assertEqual(model.name, "playlist-ml-v1")
+        self.assertNotEqual(model.weights, DEFAULT_TRANSITION_WEIGHTS)
 
 
 if __name__ == "__main__":

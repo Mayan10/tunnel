@@ -84,17 +84,20 @@ tunnel restore "My Playlist - Before Tunnel abc123" --to "My Playlist Restored"
 ```
 
 Tunnel does not mutate original playlists. It creates new ordered playlists and verifies the track count after writing.
+Before ordering a playlist from Apple Music, Tunnel also writes a local snapshot to `~/.tunnel/snapshots/`.
 
 ## Ordering Engine
 
-Tunnel currently uses two local ordering engines:
+Tunnel currently uses local ordering engines:
 
-- `audio-hybrid-v1`: runs when Apple Music exposes local audio file paths. It decodes audio with macOS `afconvert`, estimates tempo, energy, brightness, and dynamics, caches the features, and combines them with metadata.
+- `playlist-ml-v1`: trains a lightweight transition ranker from the source playlist order, then uses the learned weights to build the new order.
+- `playlist-audio-ml-v1`: same trainer, plus local audio features when Apple Music exposes downloaded file paths.
+- `audio-hybrid-v1`: local audio feature extractor used by the trainer. It decodes audio with macOS `afconvert`, estimates tempo, energy, brightness, and dynamics, and caches the features.
 - `metadata-flow-v0`: fallback when tracks are cloud-only or Music does not expose local file paths.
 
 For best results, download the playlist in Music before running Tunnel. If the output says `0 local files`, Tunnel cannot analyze audio for those songs.
 
-The next production ML milestone is `audio-embedding-v1`: a packaged Core ML model using Apple hardware acceleration for neural audio embeddings. That model is not included in this release yet.
+The current ML trainer runs locally with no dependency downloads. The next production ML milestone is `audio-embedding-v1`: a packaged Core ML model using Apple hardware acceleration for neural audio embeddings. That model is not included in this release yet.
 
 ## Publish On GitHub
 
@@ -117,8 +120,8 @@ git push -u origin main
 - Go to your repo on GitHub.
 - Open Releases.
 - Click Draft a new release.
-- Tag: `v0.1.0`
-- Title: `Tunnel v0.1.0`
+- Tag: `v0.2.0`
+- Title: `Tunnel v0.2.0`
 - Publish the release.
 
 The included GitHub Actions release workflow builds `dist/tunnel.pyz` and attaches it to the release automatically.

@@ -10,6 +10,7 @@ from .audio import AudioFeatures
 
 
 VECTOR_DIMS = 48
+DEFAULT_TRANSITION_WEIGHTS = (1.15, 1.35, 0.35, 0.25, 1.05, 0.25, 0.15)
 
 LOW_ENERGY_WORDS = {
     "acoustic": 0.25,
@@ -74,35 +75,43 @@ class TransitionBreakdown:
     era: float
     duration: float
     repetition: float
+    weights: tuple[float, float, float, float, float, float, float] = DEFAULT_TRANSITION_WEIGHTS
 
     @property
     def total(self) -> float:
+        tempo_weight, energy_weight, brightness_weight, dynamics_weight, genre_weight, era_weight, duration_weight = self.weights
         return max(
             0.0,
-            1.15 * self.tempo
-            + 1.35 * self.energy
-            + 0.35 * self.brightness
-            + 0.25 * self.dynamics
-            + 1.05 * self.genre
-            + 0.25 * self.era
-            + 0.15 * self.duration
+            tempo_weight * self.tempo
+            + energy_weight * self.energy
+            + brightness_weight * self.brightness
+            + dynamics_weight * self.dynamics
+            + genre_weight * self.genre
+            + era_weight * self.era
+            + duration_weight * self.duration
             + self.repetition,
         )
 
 
 class LocalFlowModel:
-    """A dependency-free, on-device model for estimating playlist flow.
+    """Local transition model used by the playlist orderer."""
 
-    This first model uses metadata features that Apple Music exposes locally:
-    tempo, genre, artist/album text, year, duration, rating, and loved state.
-    It is intentionally deterministic and cloud-free. A later audio embedding
-    model can implement the same public methods and feed the orderer richer
-    features when local audio files are available.
-    """
-
-    def __init__(self, audio_features: dict[str, AudioFeatures] | None = None) -> None:
+    def __init__(
+        self,
+        audio_features: dict[str, AudioFeatures] | None = None,
+        weights: tuple[float, float, float, float, float, float, float] = DEFAULT_TRANSITION_WEIGHTS,
+        trained: bool = False,
+    ) -> None:
         self.audio_features = audio_features or {}
-        self.name = "audio-hybrid-v1" if self.audio_features else "metadata-flow-v0"
+        self.weights = weights
+        if trained and self.audio_features:
+            self.name = "playlist-audio-ml-v1"
+        elif trained:
+            self.name = "playlist-ml-v1"
+        elif self.audio_features:
+            self.name = "audio-hybrid-v1"
+        else:
+            self.name = "metadata-flow-v0"
 
     @property
     def audio_feature_count(self) -> int:
@@ -158,6 +167,7 @@ class LocalFlowModel:
             era=abs(left_features.era - right_features.era),
             duration=abs(left_features.duration - right_features.duration),
             repetition=repetition,
+            weights=self.weights,
         )
 
     def target_energy(self, position: int, total: int) -> float:
@@ -171,6 +181,93 @@ class LocalFlowModel:
 
     def placement_cost(self, features: TrackFeatures, position: int, total: int) -> float:
         return 0.68 * abs(features.energy - self.target_energy(position, total))
+
+
+def train_playlist_model(
+    tracks: list[Track],
+    audio_features: dict[str, AudioFeatures] | None = None,
+    epochs: int = 20,
+    learning_rate: float = 0.08,
+    margin: float = 0.08,
+) -> LocalFlowModel:
+    """Train a lightweight transition ranker from the source playlist order.
+
+    The model learns which feature differences matter for this playlist by
+    treating existing adjacent pairs as positive examples and deterministic
+    non-adjacent pairs as negatives. It is intentionally small so it runs
+    locally and ships without dependency downloads.
+    """
+
+    base = LocalFlowModel(audio_features=audio_features)
+    if len(tracks) < 4:
+        return base
+
+    features = [base.features_for(track) for track in tracks]
+    weights = list(DEFAULT_TRANSITION_WEIGHTS)
+    examples = _training_examples(tracks, features, base)
+    if not examples:
+        return base
+
+    for _ in range(max(1, epochs)):
+        for positive, negative in examples:
+            positive_score = _weighted_score(weights, positive)
+            negative_score = _weighted_score(weights, negative)
+            if positive_score + margin > negative_score:
+                for index, (pos_value, neg_value) in enumerate(zip(positive, negative)):
+                    weights[index] -= learning_rate * (pos_value - neg_value)
+                    weights[index] = _clamp(weights[index], 0.05, 4.0)
+
+    return LocalFlowModel(
+        audio_features=audio_features,
+        weights=tuple(weights),  # type: ignore[arg-type]
+        trained=True,
+    )
+
+
+def _training_examples(
+    tracks: list[Track],
+    features: list[TrackFeatures],
+    model: LocalFlowModel,
+) -> list[tuple[tuple[float, ...], tuple[float, ...]]]:
+    examples = []
+    total = len(tracks)
+    for left_index in range(total - 1):
+        right_index = left_index + 1
+        negative_index = (left_index * 7 + 3) % total
+        if negative_index in {left_index, right_index}:
+            negative_index = (negative_index + 2) % total
+        if negative_index == left_index:
+            continue
+        positive = model.transition(
+            tracks[left_index],
+            tracks[right_index],
+            features[left_index],
+            features[right_index],
+        )
+        negative = model.transition(
+            tracks[left_index],
+            tracks[negative_index],
+            features[left_index],
+            features[negative_index],
+        )
+        examples.append((_transition_vector(positive), _transition_vector(negative)))
+    return examples
+
+
+def _transition_vector(breakdown: TransitionBreakdown) -> tuple[float, ...]:
+    return (
+        breakdown.tempo,
+        breakdown.energy,
+        breakdown.brightness,
+        breakdown.dynamics,
+        breakdown.genre,
+        breakdown.era,
+        breakdown.duration,
+    )
+
+
+def _weighted_score(weights: list[float], values: tuple[float, ...]) -> float:
+    return sum(weight * value for weight, value in zip(weights, values))
 
 
 def _tokenize(text: str) -> list[str]:
