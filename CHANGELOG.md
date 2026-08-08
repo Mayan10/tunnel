@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0] - 2026-08-08
+
+### Changed
+
+- Tunnel now has exactly one ordering engine: `audio-embedding-v1`. Removed `metadata-flow-v0`,
+  `playlist-ml-v1`, `playlist-audio-ml-v1`, and `audio-hybrid-v1`; Core ML (`coremltools`, `numpy`)
+  is now a required dependency instead of an optional `ml` extra.
+- `audio-embedding-v1` now embeds an entire playlist in a single batched Core ML call instead of one
+  call per track, and explicitly requests `ComputeUnit.ALL` (Neural Engine, GPU, and CPU) at load
+  time rather than relying on Core ML's default.
+- Replaced the dependency-free `tunnel.pyz` zipapp with a standard wheel build. This was a required
+  change, not a preference: Python's zipimporter cannot load compiled extension modules (like
+  Core ML's) from inside a `.pyz`, so a zero-dependency zipapp and a required Core ML dependency are
+  mutually exclusive. Install via `pipx install` or `pip install` instead.
+- Removed the `--no-audio` CLI flag; there is no non-Core-ML path left for it to fall back to.
+
+### Added
+
+- `tools/generate_report_assets.py` and the plots under `docs/`: a real training-loss curve, a PCA
+  projection of the embedding space by acoustic archetype, and a before/after tempo curve, generated
+  from actual local runs, not illustrations.
+
 ## [0.3.0] - 2026-08-08
 
 ### Added

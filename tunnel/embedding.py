@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from importlib import resources
 
+import coremltools as ct
+import numpy as np
+
 from .audio import AudioFeatures
 from .types import Track
 
@@ -11,17 +14,11 @@ _MODEL_RESOURCE = "models/audio_embedding_v1.mlmodel"
 _MODEL_INPUT_NAME = "audio_features"
 _MODEL_OUTPUT_NAME = "embedding"
 
-_model_loaded = False
-_model_cache: object | None = None
+_model_cache: ct.models.MLModel | None = None
 
 
-def coreml_available() -> bool:
-    """Whether the optional Core ML runtime is installed (`pip install tunnel[ml]`)."""
-    try:
-        import coremltools  # noqa: F401
-    except ImportError:
-        return False
-    return True
+class EmbeddingError(RuntimeError):
+    """Raised when the bundled Core ML model cannot be loaded or run."""
 
 
 def embed_tracks(
@@ -30,68 +27,52 @@ def embed_tracks(
 ) -> dict[str, tuple[float, ...]]:
     """Runs audio-embedding-v1 over every track with local audio features.
 
-    Returns an empty dict if the optional `coremltools` dependency is not
-    installed, or if the bundled model fails to load. Callers should treat
-    this as an optional enhancement layered on top of `audio_features`, not
-    a required input.
+    Embeds the whole playlist in a single Core ML call (the model has a
+    flexible batch dimension) rather than one call per track, since per-call
+    dispatch overhead dominates at batch size 1 on the Neural Engine.
     """
     model = _load_model()
-    if model is None:
+
+    usable_tracks = [track for track in tracks if track.id in audio_features]
+    if not usable_tracks:
         return {}
 
+    vectors = [_input_vector(track, audio_features[track.id]) for track in usable_tracks]
+    raw = _predict_batch(model, vectors)
+
     embeddings: dict[str, tuple[float, ...]] = {}
-    for track in tracks:
-        audio = audio_features.get(track.id)
-        if audio is None:
-            continue
-        vector = _input_vector(track, audio)
-        embedding = _predict(model, vector)
-        if embedding is not None:
-            embeddings[track.id] = embedding
+    for track, row in zip(usable_tracks, raw, strict=True):
+        norm = float(np.linalg.norm(row))
+        embeddings[track.id] = tuple(0.0 for _ in row) if norm <= 1e-8 else tuple(float(v / norm) for v in row)
     return embeddings
 
 
-def _load_model() -> object | None:
-    global _model_loaded, _model_cache
-    if _model_loaded:
+def _load_model() -> ct.models.MLModel:
+    global _model_cache
+    if _model_cache is not None:
         return _model_cache
-    _model_loaded = True
-
-    try:
-        import coremltools as ct
-    except ImportError:
-        return None
 
     try:
         model_path = resources.files("tunnel").joinpath(_MODEL_RESOURCE)
         with resources.as_file(model_path) as path:
-            _model_cache = ct.models.MLModel(str(path))
-    except Exception:
-        # Core ML's Python bridge can raise a wide range of native/runtime
-        # errors depending on the OS version and installed toolchain. Any
-        # failure here should just disable the embedding layer, not crash
-        # the ordering pipeline.
-        _model_cache = None
+            # compute_units=ALL lets Core ML dispatch across the Neural Engine,
+            # GPU, and CPU, whichever it judges fastest for this model and
+            # hardware. This is the default, but is set explicitly so a future
+            # coremltools version changing its default doesn't silently
+            # regress performance.
+            _model_cache = ct.models.MLModel(str(path), compute_units=ct.ComputeUnit.ALL)
+    except Exception as exc:
+        raise EmbeddingError(f"Could not load the Core ML embedding model: {exc}") from exc
     return _model_cache
 
 
-def _predict(model: object, vector: list[float]) -> tuple[float, ...] | None:
+def _predict_batch(model: ct.models.MLModel, vectors: list[list[float]]) -> np.ndarray:
     try:
-        import numpy as np
-    except ImportError:
-        return None
-
-    try:
-        input_array = np.asarray([vector], dtype=np.float32)
-        result = model.predict({_MODEL_INPUT_NAME: input_array})  # type: ignore[attr-defined]
-        raw = np.asarray(result[_MODEL_OUTPUT_NAME]).reshape(-1)
-    except Exception:
-        return None
-
-    norm = float(np.linalg.norm(raw))
-    if norm <= 1e-8:
-        return None
-    return tuple(float(value / norm) for value in raw)
+        input_array = np.asarray(vectors, dtype=np.float32)
+        result = model.predict({_MODEL_INPUT_NAME: input_array})
+        return np.asarray(result[_MODEL_OUTPUT_NAME])
+    except Exception as exc:
+        raise EmbeddingError(f"Core ML prediction failed: {exc}") from exc
 
 
 def _input_vector(track: Track, audio: AudioFeatures) -> list[float]:

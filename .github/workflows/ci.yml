@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - name: Install dev dependencies
         run: pip install .[dev]
       - name: Ruff
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
       - name: Install dev dependencies
         run: pip install .[dev]
       - name: Mypy
@@ -44,33 +44,30 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Run tests
+      - name: Install package
+        run: pip install .
+      - name: Run tests, including the Core ML embedding model
         run: python -m unittest -v
 
-  ml:
+  build:
+    needs: [lint, typecheck, test]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Install dev and ml dependencies
-        run: pip install .[dev,ml]
-      - name: Run tests, including the Core ML embedding model
-        run: python -m unittest -v
-
-  build:
-    needs: [lint, typecheck, test, ml]
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Build zipapp
-        run: python scripts/build_zipapp.py
-      - name: Upload zipapp artifact
+      - name: Install build dependency
+        run: pip install build
+      - name: Build wheel and sdist
+        run: python -m build
+      - name: Verify the wheel installs and runs
+        run: |
+          python -m venv /tmp/verify-wheel
+          /tmp/verify-wheel/bin/pip install dist/*.whl
+          /tmp/verify-wheel/bin/tunnel --version
+      - name: Upload distribution artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: tunnel-pyz
-          path: dist/tunnel.pyz
+          name: tunnel-dist
+          path: dist/*

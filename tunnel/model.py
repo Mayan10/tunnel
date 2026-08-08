@@ -94,30 +94,25 @@ class TransitionBreakdown:
 
 
 class LocalFlowModel:
-    """Local transition model used by the playlist orderer."""
+    """Local transition model used by the playlist orderer.
+
+    Tunnel has exactly one ordering engine: audio-embedding-v1. It always runs
+    Core ML locally through `tunnel.embedding`. Per-playlist transition weights
+    are trained on top of it by `train_playlist_model`; that training step
+    tunes the same model, it does not select a different one.
+    """
+
+    name = "audio-embedding-v1"
 
     def __init__(
         self,
         audio_features: dict[str, AudioFeatures] | None = None,
         embeddings: dict[str, tuple[float, ...]] | None = None,
         weights: tuple[float, float, float, float, float, float, float] = DEFAULT_TRANSITION_WEIGHTS,
-        trained: bool = False,
     ) -> None:
         self.audio_features = audio_features or {}
         self.embeddings = embeddings or {}
         self.weights = weights
-        if trained and self.embeddings:
-            self.name = "audio-embedding-v1"
-        elif trained and self.audio_features:
-            self.name = "playlist-audio-ml-v1"
-        elif trained:
-            self.name = "playlist-ml-v1"
-        elif self.embeddings:
-            self.name = "audio-embedding-v1"
-        elif self.audio_features:
-            self.name = "audio-hybrid-v1"
-        else:
-            self.name = "metadata-flow-v0"
 
     @property
     def audio_feature_count(self) -> int:
@@ -232,7 +227,6 @@ def train_playlist_model(
         audio_features=audio_features,
         embeddings=embeddings,
         weights=tuple(weights),  # type: ignore[arg-type]
-        trained=True,
     )
 
 

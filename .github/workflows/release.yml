@@ -6,25 +6,32 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Release tag to upload tunnel.pyz to"
+        description: "Release tag to upload the wheel and sdist to"
         required: true
-        default: "v0.1.0"
+        default: "v0.4.0"
 
 permissions:
   contents: write
 
 jobs:
-  build-zipapp:
+  build-dist:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-      - name: Build zipapp
-        run: python scripts/build_zipapp.py
-      - name: Upload release artifact
+          python-version: "3.13"
+      - name: Install build dependency
+        run: pip install build
+      - name: Build wheel and sdist
+        run: python -m build
+      - name: Verify the wheel installs and runs
+        run: |
+          python -m venv /tmp/verify-wheel
+          /tmp/verify-wheel/bin/pip install dist/*.whl
+          /tmp/verify-wheel/bin/tunnel --version
+      - name: Upload release assets
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag_name || github.event.release.tag_name }}
-          files: dist/tunnel.pyz
+          files: dist/*

@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Benchmarks Tunnel's ordering engines against a source (as-is) order.
+"""Benchmarks Tunnel's ordering engine against the source (as-is) playlist order.
 
-Two benchmarks:
+Two scenarios:
 
 1. Metadata only, using the bundled sample playlist (`tunnel/sample_playlist.json`):
-   compares the untrained baseline (metadata-flow-v0) against the locally
-   trained ranker (playlist-ml-v1).
+   there is no local audio for these tracks, so Core ML has nothing to embed and
+   Tunnel orders on metadata (genre/artist text, BPM, year) alone.
 2. Audio-aware, using procedurally generated synthetic audio (there is no real
-   audio in this repository): compares metadata-only, audio-hybrid-v1, and
-   audio-embedding-v1 on the same synthetic playlist.
+   audio in this repository): Core ML embeds each track and the ranker uses that
+   alongside the metadata features.
 
-Every engine is scored with the same three model-independent metrics, so the
-comparison is not biased by any one model's own internal cost function:
+Both scenarios are scored with three metrics that do not depend on Tunnel's own
+internal cost function, so the comparison is not self-graded:
 
 - mean tempo jump: average |BPM(i+1) - BPM(i)| between consecutive tracks
 - mean energy jump: average |energy(i+1) - energy(i)|, using measured audio
@@ -19,9 +19,10 @@ comparison is not biased by any one model's own internal cost function:
 - mean genre distance: average cosine distance between consecutive tracks'
   text-affinity vectors (genre/artist/album), ignoring audio and embeddings
 
+The scenario-loading functions here are reused by tools/generate_report_assets.py
+so the numbers in this script and the plots in docs/ never drift apart.
+
 Run with: python3 scripts/benchmark_ordering.py
-Run with the ml extra installed for the audio-embedding-v1 row:
-    pip install ".[ml]" && python3 scripts/benchmark_ordering.py
 """
 
 from __future__ import annotations
@@ -30,8 +31,6 @@ import json
 import math
 import random
 import sys
-import tempfile
-import wave
 from array import array
 from importlib import resources
 from pathlib import Path
@@ -39,8 +38,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from tunnel.audio import analyze_audio_for_tracks  # noqa: E402
-from tunnel.embedding import coreml_available, embed_tracks  # noqa: E402
+from tunnel.audio import AudioFeatures, analyze_audio_for_tracks  # noqa: E402
+from tunnel.embedding import embed_tracks  # noqa: E402
 from tunnel.model import LocalFlowModel, _genre_energy, train_playlist_model  # noqa: E402
 from tunnel.ordering import order_tracks  # noqa: E402
 from tunnel.types import Track  # noqa: E402
@@ -65,6 +64,9 @@ SYNTHETIC_TRACKS = [
 
 
 def make_synthetic_wav(freq: float, beat_period: int, seconds: int = 6, sample_rate: int = 11025) -> Path:
+    import tempfile
+    import wave
+
     samples = array("h")
     for i in range(sample_rate * seconds):
         beat = 1.0 if (i % beat_period) < (beat_period // 6) else 0.3
@@ -81,7 +83,7 @@ def make_synthetic_wav(freq: float, beat_period: int, seconds: int = 6, sample_r
     return path
 
 
-def evaluate(tracks: list[Track], audio_features: dict) -> dict[str, float]:
+def evaluate(tracks: list[Track], audio_features: dict[str, AudioFeatures]) -> dict[str, float]:
     tempo_jumps = []
     energy_jumps = []
     genre_distances = []
@@ -121,18 +123,8 @@ def evaluate(tracks: list[Track], audio_features: dict) -> dict[str, float]:
     }
 
 
-def print_table(rows: list[tuple[str, dict[str, float]]]) -> None:
-    print(f"{'Engine':<22}{'Tempo jump (BPM)':>18}{'Energy jump':>14}{'Genre distance':>16}")
-    print("-" * 70)
-    for name, metrics in rows:
-        print(
-            f"{name:<22}{metrics['tempo_jump']:>18.2f}"
-            f"{metrics['energy_jump']:>14.3f}{metrics['genre_distance']:>16.3f}"
-        )
-
-
-def benchmark_metadata_only() -> None:
-    print("\n== Benchmark 1: metadata only (bundled sample_playlist.json) ==\n")
+def load_metadata_scenario() -> tuple[list[Track], list[Track]]:
+    """Returns (shuffled, ordered) using the bundled sample playlist. No local audio."""
     sample_text = resources.files("tunnel").joinpath("sample_playlist.json").read_text(encoding="utf-8")
     payload = json.loads(sample_text)
     tracks = [Track.from_dict(item, index + 1) for index, item in enumerate(payload.get("tracks", []))]
@@ -140,17 +132,12 @@ def benchmark_metadata_only() -> None:
     rng = random.Random(7)
     shuffled = tracks[:]
     rng.shuffle(shuffled)
-
-    rows = [
-        ("source order (shuffled)", evaluate(shuffled, {})),
-        ("metadata-flow-v0", evaluate(order_tracks(shuffled, model=LocalFlowModel()).tracks, {})),
-        ("playlist-ml-v1", evaluate(order_tracks(shuffled, model=train_playlist_model(shuffled)).tracks, {})),
-    ]
-    print_table(rows)
+    ordered = order_tracks(shuffled, model=train_playlist_model(shuffled)).tracks
+    return shuffled, ordered
 
 
-def benchmark_audio_aware() -> None:
-    print("\n== Benchmark 2: synthetic audio (procedurally generated, not real music) ==\n")
+def load_audio_scenario() -> tuple[list[Track], list[Track], dict[str, AudioFeatures]]:
+    """Returns (shuffled, ordered, audio_features) using procedurally generated synthetic audio."""
     tracks = []
     paths = []
     for index, (name, genre, freq, beat_period) in enumerate(SYNTHETIC_TRACKS):
@@ -174,47 +161,38 @@ def benchmark_audio_aware() -> None:
 
         audio_features = analyze_audio_for_tracks(shuffled)
         embeddings = embed_tracks(shuffled, audio_features)
-
-        rows = [
-            ("source order (shuffled)", evaluate(shuffled, audio_features)),
-            (
-                "playlist-ml-v1 (no audio)",
-                evaluate(order_tracks(shuffled, model=train_playlist_model(shuffled)).tracks, audio_features),
-            ),
-            (
-                "audio-hybrid-v1",
-                evaluate(
-                    order_tracks(shuffled, model=train_playlist_model(shuffled, audio_features=audio_features)).tracks,
-                    audio_features,
-                ),
-            ),
-        ]
-        if embeddings:
-            rows.append(
-                (
-                    "audio-embedding-v1",
-                    evaluate(
-                        order_tracks(
-                            shuffled,
-                            model=train_playlist_model(shuffled, audio_features=audio_features, embeddings=embeddings),
-                        ).tracks,
-                        audio_features,
-                    ),
-                )
-            )
-        else:
-            print("(coremltools not installed; skipping audio-embedding-v1. Install with: pip install \".[ml]\")\n")
-
-        print_table(rows)
+        model = train_playlist_model(shuffled, audio_features=audio_features, embeddings=embeddings)
+        ordered = order_tracks(shuffled, model=model).tracks
     finally:
         for path in paths:
             path.unlink(missing_ok=True)
 
+    return shuffled, ordered, audio_features
+
+
+def print_table(rows: list[tuple[str, dict[str, float]]]) -> None:
+    print(f"{'Order':<26}{'Tempo jump (BPM)':>18}{'Energy jump':>14}{'Genre distance':>16}")
+    print("-" * 74)
+    for name, metrics in rows:
+        print(
+            f"{name:<26}{metrics['tempo_jump']:>18.2f}"
+            f"{metrics['energy_jump']:>14.3f}{metrics['genre_distance']:>16.3f}"
+        )
+
 
 def main() -> int:
-    print(f"coremltools available: {coreml_available()}")
-    benchmark_metadata_only()
-    benchmark_audio_aware()
+    print("\n== Scenario 1: metadata only (bundled sample_playlist.json, no local audio) ==\n")
+    shuffled, ordered = load_metadata_scenario()
+    print_table([("source order (shuffled)", evaluate(shuffled, {})), ("Tunnel", evaluate(ordered, {}))])
+
+    print("\n== Scenario 2: synthetic audio (procedurally generated, not real music) ==\n")
+    audio_shuffled, audio_ordered, audio_features = load_audio_scenario()
+    print_table(
+        [
+            ("source order (shuffled)", evaluate(audio_shuffled, audio_features)),
+            ("Tunnel (audio-embedding-v1)", evaluate(audio_ordered, audio_features)),
+        ]
+    )
     return 0
 
 

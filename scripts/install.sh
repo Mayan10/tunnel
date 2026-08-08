@@ -2,15 +2,14 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-INSTALL_DIR="${HOME}/.local/bin"
-TARGET="${INSTALL_DIR}/tunnel"
 
-python3 "${ROOT_DIR}/scripts/build_zipapp.py"
+if command -v pipx >/dev/null 2>&1; then
+  pipx install --force "${ROOT_DIR}"
+else
+  python3 -m pip install --user --upgrade "${ROOT_DIR}"
+  printf 'Installed with pip. For an isolated install instead, use pipx: https://pipx.pypa.io\n'
+fi
 
-mkdir -p "${INSTALL_DIR}"
-cp "${ROOT_DIR}/dist/tunnel.pyz" "${TARGET}"
-chmod +x "${TARGET}"
-
-printf 'Installed tunnel to %s\n' "${TARGET}"
-printf 'If needed, add this to your shell config:\n'
+printf 'Installed tunnel.\n'
+printf 'If the command is not found, add this to your shell config:\n'
 printf '  export PATH="$HOME/.local/bin:$PATH"\n'

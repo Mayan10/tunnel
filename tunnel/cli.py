@@ -17,7 +17,7 @@ from .apple_music import (
     list_playlists,
 )
 from .audio import analyze_audio_for_tracks
-from .embedding import coreml_available, embed_tracks
+from .embedding import EmbeddingError, embed_tracks
 from .interactive import run_app
 from .io import load_tracks_json, write_m3u, write_order_json
 from .model import LocalFlowModel, train_playlist_model
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         try:
             return run_app()
-        except (AppleMusicError, OSError, ValueError) as exc:
+        except (AppleMusicError, EmbeddingError, OSError, ValueError) as exc:
             print(f"tunnel: {exc}", file=sys.stderr)
             return 1
 
@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.handler(args)
-    except (AppleMusicError, OSError, ValueError) as exc:
+    except (AppleMusicError, EmbeddingError, OSError, ValueError) as exc:
         print(f"tunnel: {exc}", file=sys.stderr)
         return 1
 
@@ -74,7 +74,6 @@ def build_parser() -> argparse.ArgumentParser:
     order_parser.add_argument("--limit", type=int, help="Use only the first N tracks while testing.")
     order_parser.add_argument("--max-print", type=int, default=120, help="Maximum rows to print in the terminal.")
     order_parser.add_argument("--no-polish", action="store_true", help="Skip local swap polishing for very fast runs.")
-    order_parser.add_argument("--no-audio", action="store_true", help="Skip local audio analysis and use metadata only.")
     order_parser.set_defaults(handler=cmd_order)
 
     demo_parser = subparsers.add_parser("demo", help="Run the model against the bundled sample playlist.")
@@ -130,7 +129,7 @@ def cmd_order(args: argparse.Namespace) -> int:
         tracks = tracks[: args.limit]
 
     config = OrderingConfig(swap_passes=0 if args.no_polish else 3)
-    model = _build_model(tracks, use_audio=not args.no_audio)
+    model = _build_model(tracks)
     ordered = order_tracks(tracks, model=model, config=config)
     _print_order(playlist_name, ordered.tracks, ordered.score, args.max_print)
     _print_diagnostics(ordered)
@@ -216,26 +215,23 @@ def _print_diagnostics(ordered) -> None:
     )
     print(f"Model: {ordered.model_name}")
     if ordered.audio_features == 0 and ordered.local_files == 0:
-        print("Audio model unavailable: Apple Music did not expose local audio file paths.")
+        print("No local audio to analyze: Apple Music did not expose local file paths for these tracks.")
 
 
-def _build_model(tracks: list[Track], use_audio: bool) -> LocalFlowModel:
+def _build_model(tracks: list[Track]) -> LocalFlowModel:
     local_files = sum(1 for track in tracks if track.location)
-    if not use_audio or local_files == 0:
+    if local_files == 0:
         return train_playlist_model(tracks)
 
     print(f"Analyzing local audio for {local_files} tracks...")
     audio_features = analyze_audio_for_tracks(tracks)
     if not audio_features:
-        print("No audio files could be analyzed; using metadata fallback.")
+        print("No audio files could be analyzed.")
         return train_playlist_model(tracks)
     print(f"Audio features ready for {len(audio_features)} tracks.")
 
     embeddings = embed_tracks(tracks, audio_features)
-    if embeddings:
-        print(f"Neural embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
-    elif not coreml_available():
-        print('Core ML embedding model not installed. Install with: pip install "tunnel[ml]"')
+    print(f"Core ML embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
     return train_playlist_model(tracks, audio_features=audio_features, embeddings=embeddings)
 
 

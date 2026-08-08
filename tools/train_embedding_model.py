@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Trains audio-embedding-v1 and exports it as a Core ML model.
 
-This is a development tool, not part of the shipped `tunnel` package. It
-requires numpy and coremltools:
+This is a development tool, not part of the shipped `tunnel` package, though
+numpy and coremltools are both required to run Tunnel itself:
 
-    pip install ".[ml]"
+    pip install -e ".[dev]"
     python3 tools/train_embedding_model.py
 
 The model is a small feed-forward network trained with a triplet loss on
@@ -216,10 +216,11 @@ def train(
     steps: int = 3000,
     batch_size: int = 64,
     learning_rate: float = 0.05,
-) -> MLP:
+) -> tuple[MLP, list[float]]:
     mlp = MLP(rng)
     momentum = {name: np.zeros_like(value) for name, value in mlp.params().items()}
     beta = 0.9
+    loss_history: list[float] = []
 
     for step in range(steps):
         x_a, x_p, x_n = sample_triplets(rng, features, labels, batch_size)
@@ -236,10 +237,11 @@ def train(
             momentum[name] = beta * momentum[name] + (1 - beta) * grad
             mlp.set_param(name, value - learning_rate * momentum[name])
 
+        loss_history.append(loss)
         if step % 300 == 0 or step == steps - 1:
             print(f"  step {step:5d}  triplet loss {loss:.4f}")
 
-    return mlp
+    return mlp, loss_history
 
 
 def evaluate(rng: np.random.Generator, mlp: MLP, features: np.ndarray, labels: np.ndarray) -> tuple[float, float]:
@@ -265,12 +267,18 @@ def evaluate(rng: np.random.Generator, mlp: MLP, features: np.ndarray, labels: n
 def export(mlp: MLP, path: Path) -> None:
     import coremltools as ct
     from coremltools.converters.mil import Builder as mb
+    from coremltools.converters.mil.mil import get_new_symbol
 
     w1, b1 = mlp.W1, mlp.b1
     w2, b2 = mlp.W2, mlp.b2
     w3, b3 = mlp.W3, mlp.b3
 
-    @mb.program(input_specs=[mb.TensorSpec(shape=(1, INPUT_DIMS))])
+    # A symbolic batch dimension lets Tunnel embed an entire playlist in one
+    # Core ML call instead of one call per track, which matters on hardware
+    # with a Neural Engine: per-call dispatch overhead dominates at batch=1.
+    batch = get_new_symbol()
+
+    @mb.program(input_specs=[mb.TensorSpec(shape=(batch, INPUT_DIMS))])
     def prog(audio_features):
         z1 = mb.linear(x=audio_features, weight=w1.T, bias=b1, name="dense1")
         a1 = mb.relu(x=z1, name="relu1")
@@ -282,7 +290,7 @@ def export(mlp: MLP, path: Path) -> None:
         prog,
         source="milinternal",
         convert_to="neuralnetwork",
-        inputs=[ct.TensorType(name="audio_features", shape=(1, INPUT_DIMS))],
+        inputs=[ct.TensorType(name="audio_features", shape=(ct.RangeDim(1, 8192), INPUT_DIMS))],
         outputs=[ct.TensorType(name="embedding")],
         compute_units=ct.ComputeUnit.ALL,
     )
@@ -292,10 +300,11 @@ def export(mlp: MLP, path: Path) -> None:
         "for playlist ordering. Runs entirely on-device via Core ML."
     )
     mlmodel.input_description["audio_features"] = (
-        "9-dim vector: [tempo, energy, brightness, dynamics, duration, band0, band1, band2, band3], "
-        "each normalized to roughly [0, 1]."
+        "(N, 9) batch of feature vectors: [tempo, energy, brightness, dynamics, duration, "
+        "band0, band1, band2, band3] per row, each normalized to roughly [0, 1]. N is flexible "
+        "so a full playlist can be embedded in a single call."
     )
-    mlmodel.output_description["embedding"] = "8-dim raw embedding. L2-normalize before comparing vectors."
+    mlmodel.output_description["embedding"] = "(N, 8) raw embeddings. L2-normalize each row before comparing."
     path.parent.mkdir(parents=True, exist_ok=True)
     mlmodel.save(str(path))
 
@@ -312,7 +321,7 @@ def main() -> int:
     features, labels, names = build_dataset(rng, per_class=args.per_class)
     print(f"Training on {len(features)} synthetic examples across archetypes: {', '.join(names)}")
 
-    mlp = train(rng, features, labels, steps=args.steps)
+    mlp, _ = train(rng, features, labels, steps=args.steps)
 
     intra, inter = evaluate(rng, mlp, features, labels)
     ratio = inter / max(intra, 1e-6)

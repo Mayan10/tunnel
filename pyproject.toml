@@ -4,14 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tunnel"
-version = "0.3.0"
-description = "A terminal app for ordering Apple Music playlists into smooth listening flows."
+version = "0.4.0"
+description = "A terminal app for ordering Apple Music playlists into smooth listening flows using a local Core ML model."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 authors = [{ name = "Tunnel contributors" }]
 license = { text = "MIT" }
-dependencies = []
-keywords = ["apple-music", "playlist", "cli", "terminal", "audio"]
+dependencies = ["coremltools>=7.0", "numpy>=1.23"]
+keywords = ["apple-music", "playlist", "cli", "terminal", "audio", "coreml", "machine-learning"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -32,8 +32,7 @@ Issues = "https://github.com/Mayan10/tunnel/issues"
 Changelog = "https://github.com/Mayan10/tunnel/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-dev = ["ruff>=0.6", "mypy>=1.10"]
-ml = ["coremltools>=7.0", "numpy>=1.23"]
+dev = ["ruff>=0.6", "mypy>=1.10", "build>=1.0", "matplotlib>=3.8"]
 
 [project.scripts]
 tunnel = "tunnel.cli:main"
@@ -52,7 +51,6 @@ target-version = "py311"
 select = ["E4", "E7", "E9", "F", "I", "UP"]
 
 [tool.mypy]
-python_version = "3.11"
 files = ["tunnel"]
 ignore_missing_imports = true
 warn_unused_ignores = true

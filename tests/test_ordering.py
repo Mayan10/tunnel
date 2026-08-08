@@ -53,7 +53,7 @@ class OrderingTest(unittest.TestCase):
 
         model = train_playlist_model(tracks)
 
-        self.assertEqual(model.name, "playlist-ml-v1")
+        self.assertEqual(model.name, "audio-embedding-v1")
         self.assertNotEqual(model.weights, DEFAULT_TRANSITION_WEIGHTS)
 
 
