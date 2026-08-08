@@ -69,7 +69,7 @@ class Track:
     source_index: int | None = None
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any], fallback_index: int | None = None) -> "Track":
+    def from_dict(cls, data: dict[str, Any], fallback_index: int | None = None) -> Track:
         name = _clean_text(data.get("name")) or "Unknown Title"
         artist = _clean_text(data.get("artist"))
         album = _clean_text(data.get("album"))

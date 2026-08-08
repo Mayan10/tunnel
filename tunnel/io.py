@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -26,7 +26,7 @@ def load_tracks_json(path: Path) -> tuple[str, list[Track]]:
 def write_order_json(path: Path, playlist_name: str, ordered: OrderedPlaylist) -> None:
     payload = {
         "playlist": playlist_name,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": datetime.now(UTC).isoformat(),
         "model": ordered.model_name,
         "score": round(ordered.score, 6),
         "tracks": [track.to_dict() for track in ordered.tracks],

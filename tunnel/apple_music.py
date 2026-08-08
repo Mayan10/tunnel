@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from uuid import uuid4
 from dataclasses import dataclass
 from typing import Any
+from uuid import uuid4
 
 from .types import Track
 

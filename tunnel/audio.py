@@ -2,15 +2,15 @@ from __future__ import annotations
 
 import json
 import math
-import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import wave
 from array import array
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable
 from urllib.parse import unquote, urlparse
 
 from .types import Track
@@ -96,7 +96,7 @@ class _AudioFeatureCache:
         self.values = values
 
     @classmethod
-    def load(cls) -> "_AudioFeatureCache":
+    def load(cls) -> _AudioFeatureCache:
         path = Path.home() / ".cache" / "tunnel" / "audio-features-v1.json"
         if not path.exists():
             return cls(path, {})
@@ -166,7 +166,7 @@ def _read_wav_mono(path: Path, max_seconds: int) -> tuple[list[float], int, floa
     elif sample_width == 2:
         ints = array("h")
         ints.frombytes(raw)
-        if os.sys.byteorder != "little":
+        if sys.byteorder != "little":
             ints.byteswap()
         values = [sample / 32768.0 for sample in ints]
     else:

@@ -7,7 +7,6 @@ import tempfile
 import zipapp
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
 TARGET = DIST / "tunnel.pyz"

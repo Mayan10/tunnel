@@ -5,9 +5,8 @@ from hashlib import blake2b
 from math import sqrt
 from re import findall
 
-from .types import Track
 from .audio import AudioFeatures
-
+from .types import Track
 
 VECTOR_DIMS = 48
 DEFAULT_TRANSITION_WEIGHTS = (1.15, 1.35, 0.35, 0.25, 1.05, 0.25, 0.15)
