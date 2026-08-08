@@ -17,6 +17,7 @@ from .apple_music import (
     list_playlists,
 )
 from .audio import analyze_audio_for_tracks
+from .embedding import coreml_available, embed_tracks
 from .interactive import run_app
 from .io import load_tracks_json, write_m3u, write_order_json
 from .model import LocalFlowModel, train_playlist_model
@@ -210,7 +211,8 @@ def _print_diagnostics(ordered) -> None:
         f"{ordered.missing_bpm} missing BPM, "
         f"{ordered.missing_year} missing year, "
         f"{ordered.local_files} local files, "
-        f"{ordered.audio_features} audio-analyzed"
+        f"{ordered.audio_features} audio-analyzed, "
+        f"{ordered.embeddings} neural-embedded"
     )
     print(f"Model: {ordered.model_name}")
     if ordered.audio_features == 0 and ordered.local_files == 0:
@@ -228,7 +230,13 @@ def _build_model(tracks: list[Track], use_audio: bool) -> LocalFlowModel:
         print("No audio files could be analyzed; using metadata fallback.")
         return train_playlist_model(tracks)
     print(f"Audio features ready for {len(audio_features)} tracks.")
-    return train_playlist_model(tracks, audio_features=audio_features)
+
+    embeddings = embed_tracks(tracks, audio_features)
+    if embeddings:
+        print(f"Neural embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
+    elif not coreml_available():
+        print('Core ML embedding model not installed. Install with: pip install "tunnel[ml]"')
+    return train_playlist_model(tracks, audio_features=audio_features, embeddings=embeddings)
 
 
 def _clip(value: str, width: int) -> str:

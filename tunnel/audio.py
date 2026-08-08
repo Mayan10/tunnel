@@ -23,6 +23,7 @@ class AudioFeatures:
     brightness: float
     dynamics: float
     analyzed_seconds: float
+    bands: tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25)
 
 
 ProgressCallback = Callable[[int, int, Track], None]
@@ -78,6 +79,7 @@ def analyze_audio_file(path: Path, max_seconds: int = 120) -> AudioFeatures:
     dynamics = _dynamics(energies)
     brightness = _brightness(samples)
     bpm = _estimate_bpm(energies, sample_rate / hop_size)
+    bands = _band_energies(samples, sample_rate)
 
     return AudioFeatures(
         bpm=bpm,
@@ -85,11 +87,12 @@ def analyze_audio_file(path: Path, max_seconds: int = 120) -> AudioFeatures:
         brightness=brightness,
         dynamics=dynamics,
         analyzed_seconds=analyzed_seconds,
+        bands=bands,
     )
 
 
 class _AudioFeatureCache:
-    version = 1
+    version = 2
 
     def __init__(self, path: Path, values: dict[str, AudioFeatures]) -> None:
         self.path = path
@@ -97,7 +100,7 @@ class _AudioFeatureCache:
 
     @classmethod
     def load(cls) -> _AudioFeatureCache:
-        path = Path.home() / ".cache" / "tunnel" / "audio-features-v1.json"
+        path = Path.home() / ".cache" / "tunnel" / "audio-features-v2.json"
         if not path.exists():
             return cls(path, {})
         try:
@@ -109,14 +112,16 @@ class _AudioFeatureCache:
         values = {}
         for key, item in payload.get("features", {}).items():
             try:
+                bands = item["bands"]
                 values[key] = AudioFeatures(
                     bpm=item.get("bpm"),
                     energy=float(item["energy"]),
                     brightness=float(item["brightness"]),
                     dynamics=float(item["dynamics"]),
                     analyzed_seconds=float(item["analyzed_seconds"]),
+                    bands=(float(bands[0]), float(bands[1]), float(bands[2]), float(bands[3])),
                 )
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError, IndexError):
                 continue
         return cls(path, values)
 
@@ -250,6 +255,54 @@ def _dynamics(energies: list[float]) -> float:
         return 0.0
     variance = sum((value - mean) ** 2 for value in energies) / len(energies)
     return _clamp(math.sqrt(variance) / (mean * 1.8))
+
+
+def _band_energies(samples: list[float], sample_rate: int) -> tuple[float, float, float, float]:
+    """Crude 4-band spectral energy split, used as an input feature for audio-embedding-v1.
+
+    Uses cascaded one-pole lowpass filters instead of an FFT, since it is cheap enough
+    in pure Python to run on a full track without adding a dependency.
+    """
+    if len(samples) < 4:
+        return (0.25, 0.25, 0.25, 0.25)
+
+    step = max(1, len(samples) // 300_000)
+    decimated = samples[::step]
+    effective_rate = sample_rate / step
+
+    low = _one_pole_lowpass(decimated, effective_rate, 200.0)
+    mid_low = _one_pole_lowpass(decimated, effective_rate, 800.0)
+    mid_high = _one_pole_lowpass(decimated, effective_rate, 2500.0)
+
+    band0 = _mean_square(low)
+    band1 = _mean_square(_subtract(mid_low, low))
+    band2 = _mean_square(_subtract(mid_high, mid_low))
+    band3 = _mean_square(_subtract(decimated, mid_high))
+
+    total = band0 + band1 + band2 + band3
+    if total <= 1e-12:
+        return (0.25, 0.25, 0.25, 0.25)
+    return (band0 / total, band1 / total, band2 / total, band3 / total)
+
+
+def _one_pole_lowpass(samples: list[float], sample_rate: float, cutoff_hz: float) -> list[float]:
+    alpha = _clamp(1.0 - math.exp(-2.0 * math.pi * cutoff_hz / sample_rate))
+    output = [0.0] * len(samples)
+    state = 0.0
+    for index, value in enumerate(samples):
+        state += alpha * (value - state)
+        output[index] = state
+    return output
+
+
+def _subtract(left: list[float], right: list[float]) -> list[float]:
+    return [a - b for a, b in zip(left, right, strict=True)]
+
+
+def _mean_square(values: list[float]) -> float:
+    if not values:
+        return 0.0
+    return sum(value * value for value in values) / len(values)
 
 
 def _cache_key(path: Path) -> str:

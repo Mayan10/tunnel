@@ -47,8 +47,20 @@ jobs:
       - name: Run tests
         run: python -m unittest -v
 
+  ml:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dev and ml dependencies
+        run: pip install .[dev,ml]
+      - name: Run tests, including the Core ML embedding model
+        run: python -m unittest -v
+
   build:
-    needs: [lint, typecheck, test]
+    needs: [lint, typecheck, test, ml]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4

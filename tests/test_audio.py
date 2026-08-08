@@ -34,6 +34,10 @@ class AudioAnalysisTest(unittest.TestCase):
             self.assertGreaterEqual(features.brightness, 0)
             self.assertLessEqual(features.brightness, 1)
             self.assertGreater(features.analyzed_seconds, 3)
+            self.assertEqual(len(features.bands), 4)
+            self.assertAlmostEqual(sum(features.bands), 1.0, places=6)
+            for band in features.bands:
+                self.assertGreaterEqual(band, 0)
         finally:
             path.unlink(missing_ok=True)
 

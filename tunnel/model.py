@@ -6,6 +6,7 @@ from math import sqrt
 from re import findall
 
 from .audio import AudioFeatures
+from .embedding import EMBEDDING_DIMS
 from .types import Track
 
 VECTOR_DIMS = 48
@@ -98,15 +99,21 @@ class LocalFlowModel:
     def __init__(
         self,
         audio_features: dict[str, AudioFeatures] | None = None,
+        embeddings: dict[str, tuple[float, ...]] | None = None,
         weights: tuple[float, float, float, float, float, float, float] = DEFAULT_TRANSITION_WEIGHTS,
         trained: bool = False,
     ) -> None:
         self.audio_features = audio_features or {}
+        self.embeddings = embeddings or {}
         self.weights = weights
-        if trained and self.audio_features:
+        if trained and self.embeddings:
+            self.name = "audio-embedding-v1"
+        elif trained and self.audio_features:
             self.name = "playlist-audio-ml-v1"
         elif trained:
             self.name = "playlist-ml-v1"
+        elif self.embeddings:
+            self.name = "audio-embedding-v1"
         elif self.audio_features:
             self.name = "audio-hybrid-v1"
         else:
@@ -115,6 +122,10 @@ class LocalFlowModel:
     @property
     def audio_feature_count(self) -> int:
         return len(self.audio_features)
+
+    @property
+    def embedding_count(self) -> int:
+        return len(self.embeddings)
 
     def features_for(self, track: Track) -> TrackFeatures:
         audio = self.audio_features.get(track.id)
@@ -144,7 +155,7 @@ class LocalFlowModel:
             dynamics=dynamics,
             era=era,
             duration=duration,
-            affinity=_affinity_vector(track),
+            affinity=_affinity_vector(track, self.embeddings.get(track.id)),
         )
 
     def transition(self, left: Track, right: Track, left_features: TrackFeatures, right_features: TrackFeatures) -> TransitionBreakdown:
@@ -185,6 +196,7 @@ class LocalFlowModel:
 def train_playlist_model(
     tracks: list[Track],
     audio_features: dict[str, AudioFeatures] | None = None,
+    embeddings: dict[str, tuple[float, ...]] | None = None,
     epochs: int = 20,
     learning_rate: float = 0.08,
     margin: float = 0.08,
@@ -197,7 +209,7 @@ def train_playlist_model(
     locally and ships without dependency downloads.
     """
 
-    base = LocalFlowModel(audio_features=audio_features)
+    base = LocalFlowModel(audio_features=audio_features, embeddings=embeddings)
     if len(tracks) < 4:
         return base
 
@@ -218,6 +230,7 @@ def train_playlist_model(
 
     return LocalFlowModel(
         audio_features=audio_features,
+        embeddings=embeddings,
         weights=tuple(weights),  # type: ignore[arg-type]
         trained=True,
     )
@@ -278,7 +291,7 @@ def _hash_index(token: str) -> int:
     return int.from_bytes(digest, "big") % VECTOR_DIMS
 
 
-def _affinity_vector(track: Track) -> tuple[float, ...]:
+def _affinity_vector(track: Track, embedding: tuple[float, ...] | None) -> tuple[float, ...]:
     values = [0.0] * VECTOR_DIMS
     weighted_sources = [
         (track.genre, 1.5),
@@ -291,9 +304,9 @@ def _affinity_vector(track: Track) -> tuple[float, ...]:
             values[_hash_index(token)] += weight
 
     norm = sqrt(sum(value * value for value in values))
-    if norm == 0:
-        return tuple(values)
-    return tuple(value / norm for value in values)
+    text_vector = tuple(values) if norm == 0 else tuple(value / norm for value in values)
+    embedding_vector = embedding if embedding is not None else (0.0,) * EMBEDDING_DIMS
+    return text_vector + embedding_vector
 
 
 def _cosine_distance(left: tuple[float, ...], right: tuple[float, ...]) -> float:

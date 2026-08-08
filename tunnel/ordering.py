@@ -22,6 +22,7 @@ class OrderedPlaylist:
     missing_year: int
     local_files: int
     audio_features: int
+    embeddings: int
 
 
 def order_tracks(
@@ -34,7 +35,7 @@ def order_tracks(
     if config is None:
         config = OrderingConfig()
     if not tracks:
-        return OrderedPlaylist([], 0.0, model.name, 0, 0, 0, model.audio_feature_count)
+        return OrderedPlaylist([], 0.0, model.name, 0, 0, 0, model.audio_feature_count, model.embedding_count)
     if len(tracks) == 1:
         return OrderedPlaylist(
             tracks[:],
@@ -44,6 +45,7 @@ def order_tracks(
             int(tracks[0].year is None),
             int(bool(tracks[0].location)),
             model.audio_feature_count,
+            model.embedding_count,
         )
 
     features = [model.features_for(track) for track in tracks]
@@ -70,6 +72,7 @@ def order_tracks(
         missing_year=sum(1 for track in tracks if track.year is None),
         local_files=sum(1 for track in tracks if track.location),
         audio_features=model.audio_feature_count,
+        embeddings=model.embedding_count,
     )
 
 
