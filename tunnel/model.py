@@ -37,20 +37,59 @@ HIGH_ENERGY_WORDS = {
     "dubstep": 0.9,
     "edm": 0.88,
     "electronic": 0.76,
+    "freestyle": 0.66,
     "garage": 0.68,
     "hard rock": 0.78,
     "hip hop": 0.68,
     "house": 0.82,
     "hyperpop": 0.84,
     "metal": 0.92,
+    "party": 0.74,
     "pop": 0.62,
     "punk": 0.82,
     "rap": 0.7,
     "reggaeton": 0.78,
+    "remix": 0.7,
     "rock": 0.7,
     "techno": 0.86,
     "trance": 0.84,
     "trap": 0.72,
+    "turnt": 0.8,
+    "uptempo": 0.78,
+}
+
+DARK_WORDS = {
+    "acoustic": 0.32,
+    "ambient": 0.22,
+    "ballad": 0.3,
+    "classical": 0.28,
+    "downtempo": 0.3,
+    "interlude": 0.3,
+    "jazz": 0.35,
+    "lofi": 0.32,
+    "lonely": 0.3,
+    "outro": 0.28,
+    "piano": 0.28,
+    "sad": 0.28,
+    "sleep": 0.15,
+    "slow": 0.3,
+    "soul": 0.42,
+}
+
+BRIGHT_WORDS = {
+    "afrobeats": 0.7,
+    "dance": 0.74,
+    "disco": 0.78,
+    "edm": 0.8,
+    "electronic": 0.72,
+    "house": 0.74,
+    "hyperpop": 0.82,
+    "party": 0.72,
+    "pop": 0.66,
+    "reggaeton": 0.7,
+    "sunny": 0.76,
+    "techno": 0.7,
+    "trance": 0.78,
 }
 
 
@@ -125,7 +164,7 @@ class LocalFlowModel:
     def features_for(self, track: Track) -> TrackFeatures:
         audio = self.audio_features.get(track.id)
         tempo = _tempo_norm(audio.bpm if audio and audio.bpm else track.bpm)
-        genre_energy = _genre_energy(track.genre)
+        genre_energy = _genre_energy(track.genre, track.name)
         rating_energy = _rating_norm(track.rating, track.loved)
         duration = _duration_norm(track.duration)
         era = _era_norm(track.year)
@@ -140,9 +179,9 @@ class LocalFlowModel:
                 + 0.06 * rating_energy
             )
         else:
-            brightness = 0.5
+            brightness = _genre_brightness(track.genre, track.name)
             dynamics = 0.5
-            energy = _clamp(0.52 * tempo + 0.35 * genre_energy + 0.08 * rating_energy + 0.05 * duration)
+            energy = _clamp(0.52 * tempo + 0.30 * genre_energy + 0.08 * rating_energy + 0.10 * duration)
         return TrackFeatures(
             tempo=tempo,
             energy=energy,
@@ -292,6 +331,7 @@ def _affinity_vector(track: Track, embedding: tuple[float, ...] | None) -> tuple
         (track.artist, 1.0),
         (track.album_artist, 0.8),
         (track.album, 0.65),
+        (track.name, 0.4),
     ]
     for source, weight in weighted_sources:
         for token in _tokenize(source):
@@ -342,21 +382,37 @@ def _rating_norm(rating: int | None, loved: bool) -> float:
     return rating_value
 
 
-def _genre_energy(genre: str) -> float:
-    normalized = " ".join(_tokenize(genre))
+def _mood_score(text: str, low_words: dict[str, float], high_words: dict[str, float], default: float) -> float:
+    normalized = " ".join(_tokenize(text))
     if not normalized:
-        return 0.52
-
-    matches: list[float] = []
-    for phrase, energy in LOW_ENERGY_WORDS.items():
-        if phrase in normalized:
-            matches.append(energy)
-    for phrase, energy in HIGH_ENERGY_WORDS.items():
-        if phrase in normalized:
-            matches.append(energy)
+        return default
+    matches = [score for phrase, score in low_words.items() if phrase in normalized]
+    matches += [score for phrase, score in high_words.items() if phrase in normalized]
     if not matches:
-        return 0.52
+        return default
     return sum(matches) / len(matches)
+
+
+def _genre_energy(genre: str, name: str = "") -> float:
+    """Estimate energy from genre and title words.
+
+    Genre alone is often identical across an entire playlist (Apple Music
+    tags most of an artist's catalog with one genre string), so title words
+    ("freestyle", "interlude", "remix", "lonely") are matched too — they're
+    the only place mood cues show up once genre stops differentiating.
+    """
+    return _mood_score(f"{genre} {name}", LOW_ENERGY_WORDS, HIGH_ENERGY_WORDS, 0.52)
+
+
+def _genre_brightness(genre: str, name: str = "") -> float:
+    """A rough, metadata-only brightness proxy, used only when no audio is available.
+
+    Real brightness (spectral tilt) needs decoded audio; this is a coarse stand-in
+    from genre/title words so tracks aren't forced to an identical flat value when
+    audio can't be analyzed. Defaults to neutral (0.5) when nothing matches, same
+    as before this existed.
+    """
+    return _mood_score(f"{genre} {name}", DARK_WORDS, BRIGHT_WORDS, 0.5)
 
 
 def _ease(value: float) -> float:

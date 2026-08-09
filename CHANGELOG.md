@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.2] - 2026-08-09
+
+### Changed
+
+- Lightened `tunnel/ui.py`'s blue accent slightly (`#2E1BDF` → `#5849E5`) for better readability
+  against a black terminal background.
+- Metadata-only ordering (no local audio available, e.g. a playlist made entirely of DRM-protected
+  Apple Music downloads) no longer collapses to a near-flat energy value across an entire playlist.
+  Apple Music usually tags most of an artist's catalog with one identical genre string and rarely
+  sets a per-track BPM for streamed tracks, so `_genre_energy` previously produced the same energy
+  for every track. It now also matches mood words in the track title (`freestyle`, `interlude`,
+  `lonely`, `remix`, ...), weighs duration more in the energy estimate, and a new
+  metadata-only `_genre_brightness` proxy replaces the previous flat `0.5` brightness placeholder.
+  Track titles are now also part of the artist/album/genre affinity vector used for the transition
+  ranker. Real audio analysis (when local, DRM-free files are available) is unchanged.
+
 ## [0.5.1] - 2026-08-09
 
 ### Changed

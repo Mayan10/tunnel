@@ -42,6 +42,25 @@ class OrderingTest(unittest.TestCase):
 
         self.assertLess(similar_cost, different_cost)
 
+    def test_metadata_only_energy_varies_within_a_single_genre(self):
+        # Apple Music tags most of an artist's catalog with one genre string and
+        # rarely has a BPM for streamed tracks, so a whole playlist can otherwise
+        # collapse to one identical energy value with nothing left to order by.
+        model = LocalFlowModel()
+        short_track = Track(id="a", name="Intro", artist="Drake", genre="Hip-Hop/Rap", duration=120)
+        long_track = Track(id="b", name="Outro", artist="Drake", genre="Hip-Hop/Rap", duration=320)
+
+        energies = {model.features_for(short_track).energy, model.features_for(long_track).energy}
+
+        self.assertEqual(len(energies), 2)
+
+    def test_metadata_only_brightness_reflects_title_mood(self):
+        model = LocalFlowModel()
+        somber = Track(id="a", name="I Get Lonely", artist="Drake", genre="Hip-Hop/Rap")
+        neutral = Track(id="b", name="Star67", artist="Drake", genre="Hip-Hop/Rap")
+
+        self.assertLess(model.features_for(somber).brightness, model.features_for(neutral).brightness)
+
     def test_playlist_model_trains_weights_locally(self):
         tracks = [
             Track(id="a", name="A", artist="One", genre="Ambient", bpm=72, year=2018),
