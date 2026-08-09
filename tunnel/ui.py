@@ -3,6 +3,11 @@
 No dependency is added for this: Tunnel stays network-free and dependency-light
 (see README), so this hand-rolls the handful of primitives the interactive app
 and CLI need instead of pulling in a TUI library.
+
+Palette is deliberately restrained: default foreground for body text, gray for
+secondary/meta text, and a single blue accent for interactive or emphasized
+elements (prompts, section labels, the flow score). Red is reserved for actual
+warnings and errors.
 """
 
 from __future__ import annotations
@@ -15,15 +20,9 @@ _RESET = "\033[0m"
 _CODES = {
     "bold": "\033[1m",
     "dim": "\033[2m",
-    "italic": "\033[3m",
-    "cyan": "\033[36m",
-    "magenta": "\033[35m",
-    "green": "\033[32m",
-    "yellow": "\033[33m",
-    "red": "\033[31m",
-    "blue": "\033[34m",
     "gray": "\033[90m",
-    "white": "\033[97m",
+    "red": "\033[31m",
+    "blue": "\033[38;2;46;27;223m",
 }
 
 
@@ -48,94 +47,70 @@ def style(text: str, *codes: str) -> str:
 
 
 def accent(text: str) -> str:
-    return style(text, "magenta", "bold")
+    return style(text, "blue")
 
 
 def muted(text: str) -> str:
     return style(text, "gray")
 
 
-def ok(text: str) -> str:
-    return style(text, "green")
-
-
 def warn(text: str) -> str:
-    return style(text, "yellow")
+    return style(text, "red")
 
 
-CHECK = "✓"
-ARROW = "❯"
-DOT = "·"
-BULLET = "•"
+ARROW = "›"
 
 
 def banner(title: str, subtitle: str = "") -> str:
-    inner_width = max(len(title), len(subtitle)) + 4
-    top = "╭" + "─" * inner_width + "╮"
-    bottom = "╰" + "─" * inner_width + "╯"
-    lines = [style(top, "magenta")]
-    title_line = f"  {style(title, 'bold', 'white')}"
-    pad = inner_width - len(title) - 2
-    lines.append(style("│", "magenta") + title_line + " " * pad + style("│", "magenta"))
+    lines = [style(title, "bold", "blue")]
     if subtitle:
-        subtitle_line = f"  {muted(subtitle)}"
-        pad = inner_width - len(subtitle) - 2
-        lines.append(style("│", "magenta") + subtitle_line + " " * pad + style("│", "magenta"))
-    lines.append(style(bottom, "magenta"))
+        lines.append(muted(subtitle))
     return "\n".join(lines)
 
 
 def section(text: str) -> str:
-    return style(text, "bold", "cyan")
+    return style(text, "bold")
 
 
 def prompt(text: str) -> str:
-    return f"{style(ARROW, 'magenta', 'bold')} {text}"
+    return f"{style(ARROW, 'blue')} {text}"
 
 
 def numbered(index: int, text: str, width: int = 2) -> str:
-    return f"  {style(f'{index:>{width}}', 'cyan')}{muted('.')} {text}"
+    return f"  {muted(f'{index:>{width}}')}  {text}"
 
 
 def kv(items: Iterable[tuple[str, str]]) -> str:
-    return muted(", ").join(f"{muted(key)} {value}" for key, value in items)
+    return muted("  ").join(f"{muted(key)} {value}" for key, value in items)
 
 
 def _pad(text: str, width: int, align: str) -> str:
     return text.rjust(width) if align == "r" else text.ljust(width)
 
 
-def table_top(widths: list[int]) -> str:
-    return style(_hline(widths, "╭", "┬", "╮"), "gray")
-
-
-def table_mid(widths: list[int]) -> str:
-    return style(_hline(widths, "├", "┼", "┤"), "gray")
-
-
-def table_bottom(widths: list[int]) -> str:
-    return style(_hline(widths, "╰", "┴", "╯"), "gray")
-
-
-def table_row(
-    cells: list[str],
+def table(
+    headers: list[str],
+    rows: list[list[str]],
     widths: list[int],
     aligns: list[str] | None = None,
-    codes: list[tuple[str, ...]] | None = None,
-) -> str:
-    aligns = aligns or ["l"] * len(cells)
-    codes = codes or [() for _ in cells]
-    border = style("│", "gray")
-    parts = [
-        style(_pad(text, width, align), *cell_codes) if cell_codes else _pad(text, width, align)
-        for text, width, align, cell_codes in zip(cells, widths, aligns, codes)
-    ]
-    return f"{border} " + f" {border} ".join(parts) + f" {border}"
+    row_codes: list[list[tuple[str, ...]]] | None = None,
+) -> list[str]:
+    """A plain, minimal table: bold header, a thin rule, left-aligned rows.
 
-
-def _hline(widths: list[int], left: str, mid: str, right: str) -> str:
-    segments = ["─" * (width + 2) for width in widths]
-    return left + mid.join(segments) + right
+    No box-drawing grid — closer to `git log --stat` / `pip list` than a
+    bordered widget, which reads calmer at a glance.
+    """
+    aligns = aligns or ["l"] * len(headers)
+    lines = ["  " + "  ".join(style(_pad(h, w, a), "bold") for h, w, a in zip(headers, widths, aligns))]
+    lines.append(muted("  " + "─" * (sum(widths) + 2 * (len(widths) - 1))))
+    for row_index, row in enumerate(rows):
+        codes = row_codes[row_index] if row_codes else [() for _ in row]
+        cells = [
+            style(_pad(text, width, align), *cell_codes) if cell_codes else _pad(text, width, align)
+            for text, width, align, cell_codes in zip(row, widths, aligns, codes)
+        ]
+        lines.append("  " + "  ".join(cells))
+    return lines
 
 
 class Spinner:
@@ -158,7 +133,7 @@ class Spinner:
             return
         frame = self.FRAMES[self._frame % len(self.FRAMES)]
         self._frame += 1
-        line = f"  {style(frame, 'magenta')} {text}"
+        line = f"  {muted(frame)} {text}"
         pad = max(0, self._last_len - len(line))
         sys.stdout.write("\r" + line + " " * pad)
         sys.stdout.flush()
@@ -166,9 +141,9 @@ class Spinner:
 
     def finish(self, text: str) -> None:
         if not self._live:
-            print(f"  {style(CHECK, 'green')} {text}")
+            print(f"  {text}")
             return
-        line = f"  {style(CHECK, 'green')} {text}"
+        line = f"  {text}"
         pad = max(0, self._last_len - len(line))
         sys.stdout.write("\r" + line + " " * pad + "\n")
         sys.stdout.flush()

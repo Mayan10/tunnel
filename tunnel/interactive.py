@@ -21,7 +21,7 @@ from .types import Track
 
 def run_app() -> int:
     print()
-    print(ui.banner("Tunnel", f"v{__version__} · smoother Apple Music playlists, on-device"))
+    print(ui.banner("Tunnel", f"v{__version__} — smoother Apple Music playlists, on-device"))
     print()
 
     playlists = [playlist for playlist in list_playlists() if playlist.track_count > 0]
@@ -41,7 +41,7 @@ def run_app() -> int:
         print(ui.warn("That playlist has no tracks."))
         return 1
     snapshot_path = write_playlist_snapshot(playlist_name, tracks)
-    print(f"  {ui.muted('Snapshot saved')} {ui.DOT} {snapshot_path}")
+    print(f"  {ui.muted(f'Snapshot saved: {snapshot_path}')}")
 
     model = _build_model(tracks)
     print()
@@ -68,7 +68,7 @@ def run_app() -> int:
             if custom_name:
                 target_name = custom_name
             create_playlist_from_order(playlist_name, target_name, ordered.tracks)
-            print(f"{ui.style(ui.CHECK, 'green')} Created Apple Music playlist: {ui.accent(target_name)}")
+            print(f"Created Apple Music playlist: {ui.accent(target_name)}")
             return 0
 
         if choice == "2":
@@ -77,7 +77,7 @@ def run_app() -> int:
             path = Path(path_text) if path_text else default_path
             path.parent.mkdir(parents=True, exist_ok=True)
             write_order_json(path, playlist_name, ordered)
-            print(f"{ui.style(ui.CHECK, 'green')} Wrote ordered JSON: {path}")
+            print(f"Wrote ordered JSON: {path}")
             return 0
 
         if choice == "3":
@@ -125,19 +125,18 @@ def _print_preview(tracks: list[Track], limit: int = 20) -> None:
     terminal_width = shutil.get_terminal_size((100, 24)).columns
     title_width = max(20, min(terminal_width - 24, 60))
     widths = [len(str(len(visible))), 4, 4, title_width]
-    headers = ["#", "BPM", "Year", "Track"]
 
-    print(ui.table_top(widths))
-    print(ui.table_row(headers, widths, ["r", "r", "r", "l"], [("bold",)] * 4))
-    print(ui.table_mid(widths))
+    rows = []
+    codes = []
     for index, track in enumerate(visible, 1):
         bpm = f"{track.bpm:.0f}" if track.bpm else "-"
         year = str(track.year) if track.year else "-"
         title = _clip(track.display_name, title_width)
-        cells = [str(index), bpm, year, title]
-        codes = [("gray",), (), (), ()]
-        print(ui.table_row(cells, widths, ["r", "r", "r", "l"], codes))
-    print(ui.table_bottom(widths))
+        rows.append([str(index), bpm, year, title])
+        codes.append([("gray",), (), (), ()])
+
+    for line in ui.table(["#", "BPM", "Year", "Track"], rows, widths, ["r", "r", "r", "l"], codes):
+        print(line)
 
     hidden = len(tracks) - len(visible)
     if hidden > 0:
@@ -175,15 +174,30 @@ def _build_model(tracks: list[Track]) -> LocalFlowModel:
     def progress(index: int, total: int, track: Track) -> None:
         spinner.update(f"{ui.muted(f'[{index}/{total}]')} {track.display_name}")
 
-    audio_features = analyze_audio_for_tracks(tracks, progress=progress)
-    if not audio_features:
-        print(ui.warn("No audio files could be analyzed; using metadata only."))
-        return train_playlist_model(tracks)
-    spinner.finish(f"Audio features ready for {len(audio_features)} tracks.")
+    result = analyze_audio_for_tracks(tracks, progress=progress)
 
-    embeddings = embed_tracks(tracks, audio_features)
-    print(f"  {ui.style(ui.CHECK, 'green')} Core ML embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
-    return train_playlist_model(tracks, audio_features=audio_features, embeddings=embeddings)
+    if not result.features:
+        if result.protected:
+            print(
+                ui.warn(
+                    f"{result.protected} of {local_files} tracks are DRM-protected Apple Music "
+                    "downloads (.movpkg) — encrypted streaming bundles, not audio files — and "
+                    "can't be decoded on-device. Using metadata only."
+                )
+            )
+        else:
+            print(ui.warn("No audio files could be analyzed; using metadata only."))
+        return train_playlist_model(tracks)
+
+    spinner.finish(f"Audio features ready for {len(result.features)} of {local_files} tracks.")
+    if result.protected:
+        print(ui.muted(f"  {result.protected} tracks are DRM-protected and were skipped."))
+    if result.failed:
+        print(ui.muted(f"  {result.failed} tracks could not be decoded and were skipped."))
+
+    embeddings = embed_tracks(tracks, result.features)
+    print(f"  Core ML embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
+    return train_playlist_model(tracks, audio_features=result.features, embeddings=embeddings)
 
 
 def _available_playlist_name(base_name: str) -> str:

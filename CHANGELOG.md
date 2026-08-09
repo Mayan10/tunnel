@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.1] - 2026-08-09
+
+### Changed
+
+- Restrained `tunnel/ui.py`'s palette to grayscale plus a single blue accent (used only for prompts,
+  section labels, and the flow score); dropped the banner box, magenta/cyan/green/yellow, and the
+  bordered table grid in favor of plain, `git log --stat`-style aligned columns.
+
+### Fixed
+
+- `analyze_audio_for_tracks` now distinguishes DRM-protected Apple Music downloads (`.movpkg`
+  FairPlay bundles — directories of encrypted segments, not audio files) from tracks that were
+  attempted but failed to decode, and reports the count of each instead of a single opaque
+  "no audio files could be analyzed" message. Bundles are no longer passed to `afconvert` at all.
+
 ## [0.5.0] - 2026-08-09
 
 ### Added

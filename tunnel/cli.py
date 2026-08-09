@@ -98,13 +98,9 @@ def cmd_list(_: argparse.Namespace) -> int:
         return 0
     name_width = min(max(len(playlist.name) for playlist in playlists), 56)
     widths = [name_width, 6]
-    print(ui.table_top(widths))
-    print(ui.table_row(["Playlist", "Tracks"], widths, ["l", "r"], [("bold",), ("bold",)]))
-    print(ui.table_mid(widths))
-    for playlist in playlists:
-        cells = [_clip(playlist.name, name_width), str(playlist.track_count)]
-        print(ui.table_row(cells, widths, ["l", "r"]))
-    print(ui.table_bottom(widths))
+    rows = [[_clip(playlist.name, name_width), str(playlist.track_count)] for playlist in playlists]
+    for line in ui.table(["Playlist", "Tracks"], rows, widths, ["l", "r"]):
+        print(line)
     return 0
 
 
@@ -196,16 +192,16 @@ def _print_order(playlist_name: str, tracks: list[Track], score: float, max_prin
     visible_tracks = tracks[:max_print]
     widths = [max(3, len(str(len(visible_tracks)))), 5, 4, title_width]
 
-    print(ui.table_top(widths))
-    print(ui.table_row(["#", "BPM", "Year", "Track"], widths, ["r", "r", "r", "l"], [("bold",)] * 4))
-    print(ui.table_mid(widths))
+    rows = []
+    codes = []
     for index, track in enumerate(visible_tracks, 1):
         bpm = f"{track.bpm:.0f}" if track.bpm else "-"
         year = str(track.year) if track.year else "-"
         title = _clip(track.display_name, title_width)
-        codes = [("gray",), (), (), ()]
-        print(ui.table_row([str(index), bpm, year, title], widths, ["r", "r", "r", "l"], codes))
-    print(ui.table_bottom(widths))
+        rows.append([str(index), bpm, year, title])
+        codes.append([("gray",), (), (), ()])
+    for line in ui.table(["#", "BPM", "Year", "Track"], rows, widths, ["r", "r", "r", "l"], codes):
+        print(line)
 
     hidden = len(tracks) - len(visible_tracks)
     if hidden > 0:
@@ -237,15 +233,30 @@ def _build_model(tracks: list[Track]) -> LocalFlowModel:
         return train_playlist_model(tracks)
 
     print(ui.section(f"Analyzing local audio for {local_files} tracks..."))
-    audio_features = analyze_audio_for_tracks(tracks)
-    if not audio_features:
-        print(ui.warn("No audio files could be analyzed; using metadata only."))
-        return train_playlist_model(tracks)
-    print(f"  {ui.style(ui.CHECK, 'green')} Audio features ready for {len(audio_features)} tracks.")
+    result = analyze_audio_for_tracks(tracks)
 
-    embeddings = embed_tracks(tracks, audio_features)
-    print(f"  {ui.style(ui.CHECK, 'green')} Core ML embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
-    return train_playlist_model(tracks, audio_features=audio_features, embeddings=embeddings)
+    if not result.features:
+        if result.protected:
+            print(
+                ui.warn(
+                    f"{result.protected} of {local_files} tracks are DRM-protected Apple Music "
+                    "downloads (.movpkg) — encrypted streaming bundles, not audio files — and "
+                    "can't be decoded on-device. Using metadata only."
+                )
+            )
+        else:
+            print(ui.warn("No audio files could be analyzed; using metadata only."))
+        return train_playlist_model(tracks)
+
+    print(f"  Audio features ready for {len(result.features)} of {local_files} tracks.")
+    if result.protected:
+        print(ui.muted(f"  {result.protected} tracks are DRM-protected and were skipped."))
+    if result.failed:
+        print(ui.muted(f"  {result.failed} tracks could not be decoded and were skipped."))
+
+    embeddings = embed_tracks(tracks, result.features)
+    print(f"  Core ML embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
+    return train_playlist_model(tracks, audio_features=result.features, embeddings=embeddings)
 
 
 def _clip(value: str, width: int) -> str:

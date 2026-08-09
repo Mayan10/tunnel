@@ -26,6 +26,21 @@ class AudioFeatures:
     bands: tuple[float, float, float, float] = (0.25, 0.25, 0.25, 0.25)
 
 
+@dataclass(frozen=True)
+class AudioAnalysisSummary:
+    """Result of a batch analysis pass.
+
+    ``protected`` counts local tracks that are DRM-protected Apple Music
+    downloads (e.g. .movpkg FairPlay bundles): those are directories of
+    encrypted segments, not audio files, so they're never attempted.
+    ``failed`` counts tracks that were attempted but could not be decoded.
+    """
+
+    features: dict[str, AudioFeatures]
+    protected: int
+    failed: int
+
+
 ProgressCallback = Callable[[int, int, Track], None]
 
 
@@ -33,14 +48,16 @@ def analyze_audio_for_tracks(
     tracks: list[Track],
     progress: ProgressCallback | None = None,
     max_seconds: int = 120,
-) -> dict[str, AudioFeatures]:
-    local_tracks = [(track, _location_to_path(track.location)) for track in tracks if track.location]
-    local_tracks = [(track, path) for track, path in local_tracks if path and path.exists()]
+) -> AudioAnalysisSummary:
+    locations = [(track, _location_to_path(track.location)) for track in tracks if track.location]
+    protected = sum(1 for _, path in locations if path.is_dir())
+    local_tracks = [(track, path) for track, path in locations if path.is_file()]
     if not local_tracks:
-        return {}
+        return AudioAnalysisSummary({}, protected, 0)
 
     cache = _AudioFeatureCache.load()
     features: dict[str, AudioFeatures] = {}
+    failed = 0
     total = len(local_tracks)
 
     for index, (track, path) in enumerate(local_tracks, 1):
@@ -52,12 +69,13 @@ def analyze_audio_for_tracks(
             try:
                 cached = analyze_audio_file(path, max_seconds=max_seconds)
             except (OSError, subprocess.SubprocessError, wave.Error, ValueError):
+                failed += 1
                 continue
             cache.set(key, cached)
         features[track.id] = cached
 
     cache.save()
-    return features
+    return AudioAnalysisSummary(features, protected, failed)
 
 
 def analyze_audio_file(path: Path, max_seconds: int = 120) -> AudioFeatures:

@@ -159,7 +159,7 @@ def load_audio_scenario() -> tuple[list[Track], list[Track], dict[str, AudioFeat
         shuffled = tracks[:]
         rng.shuffle(shuffled)
 
-        audio_features = analyze_audio_for_tracks(shuffled)
+        audio_features = analyze_audio_for_tracks(shuffled).features
         embeddings = embed_tracks(shuffled, audio_features)
         model = train_playlist_model(shuffled, audio_features=audio_features, embeddings=embeddings)
         ordered = order_tracks(shuffled, model=model).tracks
