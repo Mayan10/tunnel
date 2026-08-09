@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tunnel"
-version = "0.4.0"
+version = "0.5.0"
 description = "A terminal app for ordering Apple Music playlists into smooth listening flows using a local Core ML model."
 readme = "README.md"
 requires-python = ">=3.11,<3.14"

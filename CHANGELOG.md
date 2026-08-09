@@ -2,6 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0] - 2026-08-09
+
+### Added
+
+- `tunnel/ui.py`: a small, dependency-free ANSI styling layer (colors, a banner, box-drawn tables,
+  a spinner for the audio-analysis progress lines). Honors `NO_COLOR` and falls back to plain output
+  when stdout isn't a TTY.
+
+### Changed
+
+- Restyled the interactive app and the `list`/`order`/`demo` CLI output on top of `tunnel/ui.py`:
+  a banner header, a colored playlist picker, box-drawn preview tables, and a live-updating spinner
+  during local audio analysis instead of one printed line per track.
+
 ## [0.4.0] - 2026-08-08
 
 ### Changed

@@ -7,7 +7,7 @@ import sys
 from importlib import resources
 from pathlib import Path
 
-from . import __version__
+from . import __version__, ui
 from .apple_music import (
     AppleMusicError,
     copy_playlist,
@@ -94,13 +94,17 @@ def cmd_app(_: argparse.Namespace) -> int:
 def cmd_list(_: argparse.Namespace) -> int:
     playlists = sorted(list_playlists(), key=lambda item: item.name.casefold())
     if not playlists:
-        print("No playlists found.")
+        print(ui.muted("No playlists found."))
         return 0
-    width = min(max(len(playlist.name) for playlist in playlists), 56)
-    print(f"{'Playlist':<{width}}  Tracks")
-    print(f"{'-' * width}  ------")
+    name_width = min(max(len(playlist.name) for playlist in playlists), 56)
+    widths = [name_width, 6]
+    print(ui.table_top(widths))
+    print(ui.table_row(["Playlist", "Tracks"], widths, ["l", "r"], [("bold",), ("bold",)]))
+    print(ui.table_mid(widths))
     for playlist in playlists:
-        print(f"{_clip(playlist.name, width):<{width}}  {playlist.track_count:>6}")
+        cells = [_clip(playlist.name, name_width), str(playlist.track_count)]
+        print(ui.table_row(cells, widths, ["l", "r"]))
+    print(ui.table_bottom(widths))
     return 0
 
 
@@ -179,43 +183,52 @@ def _load_tracks_for_order(args: argparse.Namespace) -> tuple[str, list[Track]]:
 
 
 def _print_order(playlist_name: str, tracks: list[Track], score: float, max_print: int) -> None:
-    print(f"\n{playlist_name}")
-    print(f"Model score: {score:.3f} lower is smoother")
+    print()
+    print(ui.section(playlist_name))
+    print(f"{ui.muted('Model score')} {ui.accent(f'{score:.3f}')} {ui.muted('(lower is smoother)')}")
     print()
     if not tracks:
-        print("No tracks to order.")
+        print(ui.muted("No tracks to order."))
         return
 
     terminal_width = shutil.get_terminal_size((100, 24)).columns
-    title_width = max(30, min(terminal_width - 22, 88))
-    print(f"{'#':>3}  {'BPM':>5}  {'Year':>4}  Track")
-    print(f"{'---':>3}  {'-----':>5}  {'----':>4}  {'-' * min(title_width, 60)}")
-
+    title_width = max(30, min(terminal_width - 26, 60))
     visible_tracks = tracks[:max_print]
+    widths = [max(3, len(str(len(visible_tracks)))), 5, 4, title_width]
+
+    print(ui.table_top(widths))
+    print(ui.table_row(["#", "BPM", "Year", "Track"], widths, ["r", "r", "r", "l"], [("bold",)] * 4))
+    print(ui.table_mid(widths))
     for index, track in enumerate(visible_tracks, 1):
         bpm = f"{track.bpm:.0f}" if track.bpm else "-"
         year = str(track.year) if track.year else "-"
-        print(f"{index:>3}  {bpm:>5}  {year:>4}  {_clip(track.display_name, title_width)}")
+        title = _clip(track.display_name, title_width)
+        codes = [("gray",), (), (), ()]
+        print(ui.table_row([str(index), bpm, year, title], widths, ["r", "r", "r", "l"], codes))
+    print(ui.table_bottom(widths))
 
     hidden = len(tracks) - len(visible_tracks)
     if hidden > 0:
-        print(f"... {hidden} more tracks hidden by --max-print")
+        print(ui.muted(f"... {hidden} more tracks hidden by --max-print"))
 
 
 def _print_diagnostics(ordered) -> None:
     print()
     print(
-        "Local inputs: "
-        f"{len(ordered.tracks)} tracks, "
-        f"{ordered.missing_bpm} missing BPM, "
-        f"{ordered.missing_year} missing year, "
-        f"{ordered.local_files} local files, "
-        f"{ordered.audio_features} audio-analyzed, "
-        f"{ordered.embeddings} neural-embedded"
+        ui.kv(
+            [
+                ("tracks", str(len(ordered.tracks))),
+                ("missing BPM", str(ordered.missing_bpm)),
+                ("missing year", str(ordered.missing_year)),
+                ("local files", str(ordered.local_files)),
+                ("audio-analyzed", str(ordered.audio_features)),
+                ("neural-embedded", str(ordered.embeddings)),
+            ]
+        )
     )
-    print(f"Model: {ordered.model_name}")
+    print(f"{ui.muted('Model')} {ordered.model_name}")
     if ordered.audio_features == 0 and ordered.local_files == 0:
-        print("No local audio to analyze: Apple Music did not expose local file paths for these tracks.")
+        print(ui.muted("No local audio to analyze: Apple Music did not expose local file paths for these tracks."))
 
 
 def _build_model(tracks: list[Track]) -> LocalFlowModel:
@@ -223,15 +236,15 @@ def _build_model(tracks: list[Track]) -> LocalFlowModel:
     if local_files == 0:
         return train_playlist_model(tracks)
 
-    print(f"Analyzing local audio for {local_files} tracks...")
+    print(ui.section(f"Analyzing local audio for {local_files} tracks..."))
     audio_features = analyze_audio_for_tracks(tracks)
     if not audio_features:
-        print("No audio files could be analyzed.")
+        print(ui.warn("No audio files could be analyzed; using metadata only."))
         return train_playlist_model(tracks)
-    print(f"Audio features ready for {len(audio_features)} tracks.")
+    print(f"  {ui.style(ui.CHECK, 'green')} Audio features ready for {len(audio_features)} tracks.")
 
     embeddings = embed_tracks(tracks, audio_features)
-    print(f"Core ML embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
+    print(f"  {ui.style(ui.CHECK, 'green')} Core ML embeddings ready for {len(embeddings)} tracks (audio-embedding-v1).")
     return train_playlist_model(tracks, audio_features=audio_features, embeddings=embeddings)
 
 
